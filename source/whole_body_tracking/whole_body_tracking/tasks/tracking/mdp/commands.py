@@ -22,6 +22,8 @@ from isaaclab.utils.math import (
     yaw_quat,
 )
 
+from .adaptive_sampler import AdaptiveSampler
+
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
@@ -75,6 +77,22 @@ class MotionCommand(CommandTerm):
         self.body_pos_relative_w = torch.zeros(self.num_envs, len(cfg.body_names), 3, device=self.device)
         self.body_quat_relative_w = torch.zeros(self.num_envs, len(cfg.body_names), 4, device=self.device)
         self.body_quat_relative_w[:, :, 0] = 1.0
+        
+        # Initialize adaptive sampler
+        motion_duration = self.motion.time_step_total / self.motion.fps
+        self.adaptive_sampler = AdaptiveSampler(
+            motion_fps=int(self.motion.fps),
+            motion_duration=motion_duration,
+            bin_size_seconds=cfg.adaptive_sampling.bin_size_seconds,
+            gamma=cfg.adaptive_sampling.gamma,
+            lambda_uniform=cfg.adaptive_sampling.lambda_uniform,
+            K=cfg.adaptive_sampling.K,
+            alpha_smooth=cfg.adaptive_sampling.alpha_smooth,
+            device=self.device
+        )
+        
+        # Track starting bins for episodes (needed for failure tracking)
+        self.episode_starting_frames = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
         self.metrics["error_anchor_pos"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["error_anchor_rot"] = torch.zeros(self.num_envs, device=self.device)
@@ -193,8 +211,18 @@ class MotionCommand(CommandTerm):
         self.metrics["error_joint_vel"] = torch.norm(self.joint_vel - self.robot_joint_vel, dim=-1)
 
     def _resample_command(self, env_ids: Sequence[int]):
-        phase = sample_uniform(0.0, 1.0, (len(env_ids),), device=self.device)
-        self.time_steps[env_ids] = (phase * (self.motion.time_step_total - 1)).long()
+        if self.cfg.adaptive_sampling.enabled:
+            # Use adaptive sampling
+            phases, starting_bins = self.adaptive_sampler.sample_starting_phases(len(env_ids))
+            starting_frames = (phases * (self.motion.time_step_total - 1)).long()
+            self.episode_starting_frames[env_ids] = starting_frames
+            self.time_steps[env_ids] = starting_frames
+        else:
+            # Fallback to uniform sampling
+            phases = sample_uniform(0.0, 1.0, (len(env_ids),), device=self.device)
+            starting_frames = (phases * (self.motion.time_step_total - 1)).long()
+            self.episode_starting_frames[env_ids] = starting_frames
+            self.time_steps[env_ids] = starting_frames
 
         root_pos = self.body_pos_w[:, 0].clone()
         root_ori = self.body_quat_w[:, 0].clone()
@@ -243,6 +271,31 @@ class MotionCommand(CommandTerm):
 
         self.body_quat_relative_w = quat_mul(delta_ori_w, self.body_quat_w)
         self.body_pos_relative_w = delta_pos_w + quat_apply(delta_ori_w, self.body_pos_w - anchor_pos_w_repeat)
+    
+    def update_adaptive_sampling_stats(self, env_ids: Sequence[int], failures: torch.Tensor):
+        """
+        Update adaptive sampling statistics based on episode outcomes.
+        
+        Args:
+            env_ids: Environment IDs that completed episodes
+            failures: Boolean tensor indicating which episodes failed
+        """
+        if not self.cfg.adaptive_sampling.enabled or len(env_ids) == 0:
+            return
+            
+        # Get starting frames for completed episodes
+        starting_frames = self.episode_starting_frames[env_ids]
+        
+        # Update failure statistics
+        self.adaptive_sampler.update_failure_statistics(starting_frames, failures)
+        
+        # Update sampling probabilities periodically
+        if self.adaptive_sampler.update_counter % self.cfg.adaptive_sampling.update_frequency == 0:
+            self.adaptive_sampler.update_sampling_probabilities()
+        
+        # Log to WandB periodically
+        if self.adaptive_sampler.total_episodes % self.cfg.adaptive_sampling.log_frequency == 0:
+            self.adaptive_sampler.log_to_wandb()
 
     def _set_debug_vis_impl(self, debug_vis: bool):
         if debug_vis:
@@ -295,6 +348,38 @@ class MotionCommand(CommandTerm):
 
 
 @configclass
+class AdaptiveSamplingCfg:
+    """Configuration for adaptive sampling mechanism."""
+    
+    enabled: bool = True
+    """Enable adaptive sampling mechanism. If False, falls back to uniform sampling."""
+    
+    bin_size_seconds: float = 1.0
+    """Size of each time bin in seconds for failure tracking."""
+    
+    gamma: float = 0.9
+    """Decay rate for convolution kernel (γ in paper Equation 3)."""
+    
+    lambda_uniform: float = 0.1
+    """Mixing ratio with uniform distribution to prevent catastrophic forgetting."""
+    
+    K: int = 5
+    """Convolution kernel size for failure rate smoothing."""
+    
+    alpha_smooth: float = 0.1
+    """Exponential moving average smoothing factor for failure rates."""
+    
+    update_frequency: int = 100
+    """Update sampling probabilities every N episodes."""
+    
+    log_frequency: int = 1000
+    """Log adaptive sampling metrics to WandB every N episodes."""
+    
+    failure_threshold: float = 0.8
+    """Episodes shorter than this fraction of max length are considered failures."""
+
+
+@configclass
 class MotionCommandCfg(CommandTermCfg):
     """Configuration for the motion command."""
 
@@ -310,6 +395,9 @@ class MotionCommandCfg(CommandTermCfg):
     velocity_range: dict[str, tuple[float, float]] = {}
 
     joint_position_range: tuple[float, float] = (-0.52, 0.52)
+    
+    adaptive_sampling: AdaptiveSamplingCfg = AdaptiveSamplingCfg()
+    """Configuration for adaptive sampling mechanism."""
 
     anchor_visualizer_cfg: VisualizationMarkersCfg = FRAME_MARKER_CFG.replace(prim_path="/Visuals/Command/pose")
     anchor_visualizer_cfg.markers["frame"].scale = (0.2, 0.2, 0.2)
