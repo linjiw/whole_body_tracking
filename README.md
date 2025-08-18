@@ -66,33 +66,41 @@ In order to manage the large set of motions we used in this work, we leverage th
 reference motions automatically.
 Note: The reference motion should be retargeted and use generalized coordinates only.
 
-- Gather the reference motion datasets (please follow the original licenses), we use the same convention as .csv of
-  Unitree's dataset
-
-    - Unitree-retargeted LAFAN1 Dataset is available
-      on [HuggingFace](https://huggingface.co/datasets/lvhaidong/LAFAN1_Retargeting_Dataset)
+- **Dataset Setup Complete** ✅
+  
+    - **Downloaded**: Unitree-retargeted LAFAN1 Dataset from [HuggingFace](https://huggingface.co/datasets/lvhaidong/LAFAN1_Retargeting_Dataset)
+    - **Location**: `/home/linji/nfs/LAFAN1_Retargeting_Dataset/g1/` (40 motion files for G1 robot)
+    - **Categories**: dance, walk, run, sprint, fight, jumps, fallAndGetUp
     - Sidekicks are from [KungfuBot](https://kungfu-bot.github.io/)
     - Christiano Ronaldo celebration is from [ASAP](https://github.com/LeCAR-Lab/ASAP).
     - Balance motions are from [HuB](https://hub-robot.github.io/)
 
-
-- Log in to your WandB account; access Registry under Core on the left. Create a new registry collection with the name "
-  Motions" and artifact type "All Types".
-
+- **WandB Configuration** ✅
+  
+    - **Account**: `16726` (authenticated)
+    - **Project**: `csv_to_npz`
+    - **Registry Type**: `motions`
+    - **Note**: Set `export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python` to resolve protobuf compatibility
 
 - Convert retargeted motions to include the maximum coordinates information (body pose, body velocity, and body
-  acceleration) via forward kinematics,
+  acceleration) via forward kinematics:
 
 ```bash
-python scripts/csv_to_npz.py --input_file {motion_name}.csv --input_fps 30 --output_name {motion_name} --headless
+# Use isaac_lab_0817 conda environment
+source ~/miniconda3/etc/profile.d/conda.sh && conda activate isaac_lab_0817
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+
+# Process motion file (example with actual path)
+python scripts/csv_to_npz.py --input_file /home/linji/nfs/LAFAN1_Retargeting_Dataset/g1/dance1_subject1.csv --input_fps 30 --output_name dance1_subject1 --headless
 ```
 
-This will automatically upload the processed motion file to the WandB registry with output name {motion_name}.
+This will automatically upload the processed motion file to the WandB project `csv_to_npz` with artifact name matching the `--output_name` parameter.
 
 - Test if the WandB registry works properly by replaying the motion in Isaac Sim:
 
 ```bash
-python scripts/replay_npz.py --registry_name={your-organization}-org/wandb-registry-motions/{motion_name}
+# Replay processed motion from WandB
+python scripts/replay_npz.py --registry_name=16726/csv_to_npz/dance1_subject1:latest --headless
 ```
 
 - Debugging
@@ -105,8 +113,13 @@ python scripts/replay_npz.py --registry_name={your-organization}-org/wandb-regis
 
 ```bash
 python scripts/rsl_rl/train.py --task=Tracking-Flat-G1-v0 \
---registry_name {your-organization}-org/wandb-registry-motions/{motion_name} \
---headless --logger wandb --log_project_name {project_name} --run_name {run_name}
+--registry_name 16726-org/wandb-registry-Motions/{motion_name} \
+--headless --logger wandb --log_project_name tracking_training --run_name {motion_name}_tracking
+
+# Example with walk3_subject2 motion
+python scripts/rsl_rl/train.py --task=Tracking-Flat-G1-v0 \
+--registry_name 16726-org/wandb-registry-Motions/walk3_subject2 \
+--headless --logger wandb --log_project_name tracking_training --run_name walk3_subject2_tracking
 ```
 
 ### Policy Evaluation
@@ -115,10 +128,12 @@ python scripts/rsl_rl/train.py --task=Tracking-Flat-G1-v0 \
 
 ```bash
 python scripts/rsl_rl/play.py --task=Tracking-Flat-G1-v0 --num_envs=2 --wandb_path={wandb-run-path}
+
+# Example with actual run path format
+python scripts/rsl_rl/play.py --task=Tracking-Flat-G1-v0 --num_envs=2 --wandb_path=16726/tracking_training/{run_id}
 ```
 
-The WandB run path can be located in the run overview. It follows the format {your_organization}/{project_name}/ along
-with a unique 8-character identifier. Note that run_name is different from run_path.
+The WandB run path can be located in the run overview. It follows the format `16726/tracking_training/{8-character-run-id}`. Note that run_name is different from run_path.
 
 ## Code Structure
 

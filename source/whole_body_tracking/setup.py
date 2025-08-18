@@ -14,7 +14,7 @@ EXTENSION_TOML_DATA = toml.load(os.path.join(EXTENSION_PATH, "config", "extensio
 INSTALL_REQUIRES = [
     "psutil",
     "onnxscript",
-    "wandb>=0.19",
+    "wandb>=0.12.11,<0.13.0",
 ]
 
 # Installation operation

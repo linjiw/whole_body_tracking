@@ -1,0 +1,1035 @@
+BeyondMimic: From Motion Tracking to Versatile Humanoid Control
+via Guided Diffusion
+Qiayuan Liao∗1
+, Takara E. Truong∗2
+, Xiaoyu Huang∗1
+, Guy Tevet2
+, Koushil Sreenath†1
+and C. Karen Liu†2
+Abstract— Learning skills from human motions offers a
+promising path toward generalizable policies for versatile
+humanoid whole-body control, yet two key cornerstones are
+missing: (1) a high-quality motion tracking framework that
+faithfully transforms large-scale kinematic references into robust and extremely dynamic motions on real hardware, and (2)
+a distillation approach that can effectively learn these motion
+primitives and compose them to solve downstream tasks. We
+address these gaps with BeyondMimic, a real-world framework
+to learn from human motions for versatile and naturalistic humanoid control via guided diffusion. Our framework provides
+a motion tracking pipeline capable of challenging skills such
+as jumping spins, sprinting, and cartwheels with state-of-theart motion quality. Moving beyond simply mimicking existing
+motions, we further introduce a unified diffusion policy that
+enables zero-shot task-specific control at test time using simple
+cost functions. Deployed on hardware, BeyondMimic performs
+diverse tasks at test time, including waypoint navigation,
+joystick teleoperation, and obstacle avoidance, bridging simto-real motion tracking and flexible synthesis of human motion
+primitives for whole-body control. https://beyondmimic.
+github.io/.
+I. INTRODUCTION
+Learning from the rich diversity of human motion offers a
+promising path toward agile, human-like whole-body control
+in humanoid robots. Motion capture datasets contain diverse,
+dynamic behaviors, from stylish locomotion to complex
+whole-body motions, that, if transferred to robots, could form
+reusable building blocks for versatile, generalizable control
+across downstream tasks.
+Recent advances in physics-based character animation [1],
+[2], [3], [4], [5] have already shown incredible progress
+to synthesize human motions into dynamic behaviors for
+whole-body control to solve downstream tasks. However,
+these successes remain limited to simulation, where agents
+enjoy idealized dynamics, unlimited actuation, and perfect
+observations, unlike real-world humanoids that face unmodeled dynamics, hardware limits, and imperfect state estimation. Achieving similar capabilities on hardware requires
+two missing capabilities: (1) a scalable, high-quality motion
+tracking framework that transforms kinematic references
+into robust, highly-dynamic motions while avoiding overrandomization, jitter, and degraded motion quality seen in
+∗ Equal contribution; order decided by coin toss.
+† Equal advising; order mirrors the coin toss, with the other lab listed
+last.
+1Q. Liao, X. Huang, and K. Sreenath are with the University of California, Berkeley, CA 94720, USA. {qiayuanl, haytham.huang,
+koushils}@berkeley.edu.
+2T.E. Truong, G. Tevet, and C. K. Liu are with Stanford
+University, Stanford, CA 94305, USA. {takarat, guytevet,
+ckliu}@stanford.edu.
+Robust Offline
+Distillation
+Train Motion Tracking Policies
+State-Action
+Diffusion Model
+Guidance
+Waypoint
+Obstacle
+Desired Linear Vel
+Desired Yaw Vel
+π1 π2 π3
+Fig. 1. Overview of BeyondMimic: We train robust motion tracking
+policies π for effective sim-to-real transfer, then perform offline distillation
+to learn a state-action diffusion model, and finally deploy the distilled policy
+on downstream tasks using guidance including waypoint navigation with
+obstacle avoidance (left) and joystick-based velocity control (right).
+prior work, and (2) an effective sim-to-real recipe to distill
+learned motion primitives into a single policy capable of
+composing skills at test time for flexible, goal-driven control
+without retraining.
+We introduce BeyondMimic, a real-world framework to
+address the above two challenges altogether. BeyondMimic
+first introduces a motion tracking pipeline that is able to
+perform highly dynamic motions, such as jumping spins,
+sprinting, and cartwheels, on real humanoid hardware with
+state-of-the-art motion quality. Beyond simply mimicking
+these human motions on humanoids, our framework further
+presents a unified guided-diffusion policy that synthesizes
+these motions or skills into novel motions for zero-shot, taskspecific control at test time using only simple cost functions,
+solving downstream tasks flexibly without additional retraining.
+We demonstrate BeyondMimic on a full sim-to-real
+pipeline: training robust tracking policies, distilling them
+into a diffusion-based controller, and deploying the result
+on physical hardware. Ultimately, our system performs a
+broad set of tasks, from waypoint navigation and joystick
+teleoperation to obstacle avoidance, all while preserving
+the naturalistic style and dynamic quality of the original
+human motions. By bridging gaps in sim-to-real transfer
+for both motion tracking and diffusion policy synthesis,
+BeyondMimic provides a practical foundation for advancing generalizable whole-body humanoid control. Our core
+arXiv:2508.08241v3 [cs.RO] 13 Aug 2025
+contributions are:
+• Scalable Motion Tracking: An open-source framework
+for training robust, high-quality, and highly dynamic
+motion tracking policies on real hardware, using a
+unified MDP and a single set of hyperparameters.
+• Guided Diffusion for Humanoids: Demonstrating
+loss-guided diffusion for real-world humanoid wholebody control, enabling diverse downstream tasks via
+simple loss functions at test time, a capability not
+previously achievable with existing methods..
+• End-to-End Framework: A complete pipeline from
+raw motion capture to hardware deployment, including
+motion tracking, diffusion distillation, and real-world
+deployment, as shown in Fig 1.
+II. RELATED WORK
+A. Motion Tracking
+Early learning-based approaches to legged robot control
+focus on manually designing task-specific controllers [6],
+[7], [8], [9], which can produce robust locomotion but
+require extensive reward engineering for each task, lack
+naturalistic motion, and do not scale to the diverse skill set
+needed for general-purpose control. DeepMimic [10] offers
+an alternative by learning from human motion references to
+produce naturalistic, dynamically feasible behaviors while
+reducing the reward engineering burden, particularly suitable
+for humanoid robots. Since then, many tracking frameworks
+based on the DeepMimic paradigm have been developed.
+Earlier motion-tracking approaches typically rely on a
+small set of similar reference motions to train single-task
+policies. These policies are co-trained with task-specific
+rewards alongside the DeepMimic objective, producing controllers capable of performing one task in one style. Examples include quadrupedal locomotion [11] and goalkeeping [12], and bipedal jumping and running [13]. To enable
+more dynamic skills, ASAP [14] proposes to use a real-tosim pipeline that learns a delta action model from hardware
+experiments, improving simulation fidelity. However, this approach requires training motion-specific delta action models,
+which tend to overfit to the exact short motion. Similarly,
+KungfuBot [15] and HuB [16] achieve high-quality sim-toreal transfer with carefully hand-crafted domain randomization, but only for single short motions.
+To move beyond single-motion policies, recent research
+explores scalable motion-tracking frameworks that can learn
+a diverse set of motions within a single policy. In physicsbased animation, PHC [17] is a leading example of such
+a system, inspiring subsequent attempts in robotics to build
+general-purpose motion trackers. Early multi-motion trackers
+in robotics, such as OmniH2O [18], Exbody [19], and
+HumanPlus [20], demonstrate the feasibility of this approach
+but suffer significant motion quality degradation compared
+to their graphics counterparts. More recently, TWIST [21]
+enables good quality motion tracking but primarily for static
+motions, and similarly, CLONE [22] and UniTracker [23]
+focus mainly on low-dynamic walking motions with responsive upper-body tracking. On the other hand, GMT [24]
+handles some dynamic motions but sacrifices global trajectory tracking in favor of relative velocity tracking and
+gait regularization reward to improve robustness. Grandia
+et al. [25] present perhaps the highest-quality multi-motion
+tracking to date, but only on a small robot and without
+dynamic motions.
+To date, multi-motion tracking on real humanoid hardware with both high motion quality and support for highly
+dynamic skills has not been demonstrated. In this work, we
+aim to fill this gap by tracking diverse, minutes-long human
+references containing many distinct motions of varying style
+and difficulty.
+B. Diffusion in Robotics and Character Animation
+Denoising diffusion models are emerging as powerful
+policy generators in robotics and animation, as they naturally handle multi-modal distributions and long-horizon sequences. In character animation, kinematic diffusion models
+offer intuitive conditioning through text [26], music [27],
+geometric constraints [28], or loss functions [29]. These
+planners are often paired with a separate low-level controller
+for physical execution [28], [30]. However, this two-stage
+approach often suffers from a “planning-control gap,” where
+the planner produces out-of-distribution motions that the
+controller cannot robustly track [3]. This fragility is compounded by the challenge of selecting an appropriate replanning frequency: infrequent replanning struggles to adapt
+to environmental changes, while frequent replanning can
+prevent the agent from committing to a coherent strategy.
+While online replanning shows promise in simulation [30],
+it has yet to be validated in the real world.
+To avoid the planning-control gap, another line of work
+focuses on learning a single, end-to-end policy that maps directly from state to an action distribution. This approach, Diffusion Policy [31], extends naturally to locomotion and character control. For example, DiffuseLoco [32], and BiRoDiff [33] learn unified policies that encode a wide range of
+skills, achieving smooth gait transitions and robust real-world
+deployment for quadruped robots. Meanwhile, PDP [34]
+extends the framework to physics-based animation, showing
+text prompt following and multi-modal behavior in push
+recovery. Using diffusion or flow matching policies in RL
+training also shows improved overall return and efficiency
+in motion tracking tasks [35]. While effective, such policies
+lack a mechanism for flexible test-time conditioning, such
+as loss-guided diffusion. This is because there is no straightforward way to compare a task goal defined in state space
+with an action sequence defined in joint space. As a result,
+conditioning on new tasks typically requires retraining.
+A third category of methods seeks to combine the flexible
+guidance of planners with the robustness of end-to-end
+policies by diffusing a joint distribution over both states and
+actions. This enables test-time guidance through classifierbased rewards [36] or conditioning on future state goals [37].
+Diffuser [36] pioneered this approach for offline reinforcement learning but demonstrates limited robustness. Decision
+Diffuser [37] similarly models state-action trajectories but
+ultimately concludes that the actions lack robustness and
+replaces them with inverse dynamics post-processing. In contrast, Diffuse-CLoC [3] leverages robust offline distillation
+using PDP [34] and demonstrates strong performance in
+physics-based animation with this joint diffusion strategy.
+Nevertheless, applying guided, joint state-action diffusion
+models to complex real-world robotic control remains an
+open challenge, which we aim to solve in this work.
+III. SCALEABLE MOTION TRACKING
+In this section, we detail the scalable pipeline for training motion-tracking policies. Using the same MDP and
+hyperparameters, the pipeline produces high-quality sim-toreal policies from minutes-long reference motions, demonstrating scalability across diverse motions. Note that since
+our tracking framework does not have a history, we omit
+timestep t in the formulation for clarity. We use the subscript
+m to denote quantities from the reference motion. Unless
+otherwise stated, all amounts in this section are expressed in
+the world frame.
+A. Tracking Objective
+We start from the retargeted reference motion, represented
+as keyframes (qm, vm) of generalized positions and velocities. Using forward kinematics, we obtain for each body
+b ∈ B its pose Tb,m and twist Vb,m, where B is the set of all
+robot bodies. The goal is to reproduce the reference motion
+on hardware with high fidelity in global coordinates.
+Perturbations for robustness during training and the simto-real gap often lead to inevitable global drift. To preserve
+motion style while allowing such drift, the controller should
+not track absolute body poses.
+Therefore, we select an anchor body banchor ∈ B, typically
+the root or torso, and anchor the motion reference to the
+desired tracking objective as follows: For the anchor body,
+use the reference motion directly: Tˆ
+banchor = Tbanchor,m. For
+non-anchor bodies b ∈ B \ {banchor}, the desired pose is
+computed as Tˆ
+b = T∆ T
+−1
+banchor,m
+Tb,m, where Tbanchor,m is the
+pose of the anchor body in reference motion, and T∆ =
+(p∆, R∆) with p∆ = [pbanchor.x, pbanchor.y, pbanchor.z,m] and
+R∆ = Rz(yaw(RbanchorR⊤
+banchor,m
+)). This hybrid transform
+shifts the motion into the robot’s local frame by preserving
+height, aligning yaw, and translating the xy origin under
+the robot. Finally, the desired twists remain unchanged, i.e.,
+Vˆ
+b = Vb,m, ∀b ∈ B.
+Robots often have many closely spaced bodies. Tracking
+all of them is therefore inefficient and often unnecessary.
+Instead, we select a subset of target bodies Btarget ⊆
+B, forming the motion tracking objective as gtracking =
+(Tˆ
+banchor , Tˆ
+b, Vˆ
+b), ∀b ∈ Btarget.
+B. Observations
+We formulate the policy observation space as a singletimestep vector comprising three components. (1) Reference
+phase. We include the joint positions and velocities from
+the reference motion, c = [qjoint,m, vjoint,m], serving solely as
+phase information; the policy is not intended to track these
+joint values directly. (2) Anchor pose-tracking error. We include the pose tracking error of the anchor body, ξbanchor ∈ R
+9
+,
+which consists of the three-dimensional position error and
+the first two columns of the rotation error matrix [38]. Since
+the reference motion is predefined in the world frame, this
+term implicitly provides orientation for balancing and global
+position for correcting drift. (3) Other Proprioceptions. We
+include the robot’s root twist expressed in the root frame
+brootVbroot , joint positions qjoint and velocities vjoint, and the
+previous action alast.
+The complete observation space is then o =
+[c, ξbanchor ,
+brootVbroot , qjoint, vjoint, alast]. Note that when position
+drift compensation is unnecessary or reliable state estimation
+is unavailable, the linear components may be omitted (i.e.,
+the translational part of ξbanchor and the linear component of
+brootVbroot).
+We use asymmetric actor–critics to boost training efficiency. In addition to the policy observation, the critic
+also receives per-body relative poses w.r.t. the anchor,
+T
+−1
+banchor
+Tb, ∀b ∈ B, enabling it to estimate body-wise tracking
+errors directly in Cartesian space.
+C. Joint Impedance and Actions
+Adding joint impedance is a standard approach in animation and robotics. Many works in character animation
+[10], [17], [34] adopt high impedance for precise tracking,
+effectively reducing the control in free-space to a nearly
+kinematic problem. However, policies trained under such
+high-impedance settings are often impractical for hardware
+deployment, as they amplify sensor noise, reduce the passive
+compliance needed for impact absorption, and hinder implicit
+torque information from current and prior commands.
+In comparison, we heuristically set joint stiffness and
+damping following Raibert et. al. [39]: kp,j = Ijω
+2
+n
+, kd,j =
+2Ij ζωn, where ωn is the natural frequency, ζ is the damping
+ratio, and Ij = k
+2
+g,j Imotor,j is the reflected inertia of the j
+th
+joint. We choose a damping ratio ζ = 2 (overdamped) rather
+than 1 (critically damped) as in Raibert et. al. [39], since the
+inertia is typically underestimated by considering only the
+motor armature and ignoring the apparent link inertia. The
+natural frequency is set to a relatively low value of 10 Hz,
+which promotes compliance with moderate gains.
+The policy action is designed as normalized joint position
+setpoints: qj,t = q¯j + αjaj,t, where aj,t is the policy action
+output, q¯j is a constant nominal joint configuration, αj =
+0.25 τj,max
+kp,j
+, with τj,max representing the maximum allowable
+joint torque for joint j. This heuristic assumes that contacts
+generally occur around q¯j and that the robot hardware design
+ensures the maximum joint torque is proportional to the
+expected load. At low gains, these setpoints are not intended
+as desired position targets; rather, they serve as intermediate
+variables to generate desired torques, and are intentionally
+not clipped by joint kinematic limits.
+D. Rewards
+We design the rewards in a simple, intuitive, and general
+way, consisting of (1) Task rewards as positive, uniformly
+weighted, and expressed in task space; and (2) Minimal regularization penalties to avoid hurting tracking performance.
+Task rewards are body tracking rewards. First, we compute
+error metrics for each target body b ∈ Btarget based on the
+desired (Tˆ
+b, Vˆ
+b) and actual (Tb, Vb) poses and twists: ep,b =
+pˆb − pb, eR,b = log(Rˆ
+bR⊤
+b
+), ev,b = vˆb − vb, and ew,b ≈
+wˆ b − wb assuming the orientaion error is small. Then, the
+mean squared errors are computed across all target bodies:
+e¯χ =
+1
+|Btarget|
+P
+b∈Btarget
+∥eχ,b∥
+2
+, χ ∈ {p, R, v, w}. Each error
+metric is then normalized using a Gaussian-style exponential
+function: r(¯eχ, σ) = exp
+−e¯χ/σ2
+χ
+
+, where σχ is a nominal
+error determined empirically.
+The combined task reward is then defined as:
+rtask =
+X
+χ∈{p,R,v,w}
+r
+
+e¯χ, σχ
+
+. (1)
+For regularization, we include as few as three penalties
+critical for sim-to-real alignment. Among them, the joint
+limit penalty, rlimit, encourages joint positions to remain
+within the soft limits. The action rate penalty, rsmooth, encourages consecutive actions to be smooth, avoiding policies
+with excessive jitter. To penalize self-collision, we count the
+number of bodies where the self-contact force exceeds a
+predefined threshold as the total penalty, rcontact, over the
+bodies b /∈ Bee ⊆ B, where Bee is the end-effector body set.
+The total reward then becomes:
+r = rtask − λlrlimit − λsrsmooth − λcrcontact (2)
+where λl
+, λs, λc > 0, define the reward weights.
+Optionally, a global tracking reward for the anchor body
+banchor can be added, following the same structure as rtracking
+but using errors ep,banchor and eR,banchor .
+E. Termination and Reset
+An episode terminates under two conditions, indicating
+either a fall or tracking failure: (1) when the height or
+orientation (considering only pitch and roll) errors of the
+anchor body banchor exceed predefined thresholds, or (2)
+when any height of the end-effector body b ∈ Bee deviates
+significantly from the reference trajectory.
+At each episode reset, the motion phase is adaptively
+sampled from the entire reference trajectory (see Sec. III-F).
+The robot is initialized at the corresponding reference configuration and velocity, with additional random perturbations
+to enhance robustness.
+F. Adaptive Sampling
+Training a long sequence of motion inevitably faces the
+problem that not all segments are equally difficult. Thus, uniform sampling over the entire trajectory, a common practice
+in prior works [14], [34], [17], often tends to oversample
+easy segments while undersampling hard ones, resulting in
+larger variance in rewards and training inefficiency.
+Thus, it is natural to adaptively sample more frequently
+from harder regions. To achieve this, we divide the starting
+index of the entire motion into S bins of one second each and
+sample these bins according to empirical failure statistics.
+Let Ns and Fs be the counts of episodes and failures starting
+in Bin s. The failure rate is smoothed over time using an
+exponential moving average to prevent discrete jumps in
+sampling caused by short-term fluctuations.
+Since failures are more likely caused by suboptimal actions taken shortly before termination, we apply a noncausal convolution with an exponentially decaying kernel
+k(u) = γ
+u
+, where γ is the decay rate, to assign greater
+weight to recent past failures. The final sampling probability
+from Bin s is then:
+ps =
+PK−1
+u=0 α
+u
+r¯s+u PS
+j=1
+PK−1
+u=0 αu r¯j+u
+, (3)
+where r¯s
+is the smoothed failure rate of Bin s. We further mix the probability ps with a uniform distribution to
+preserve coverage of easier bins and mitigate catastrophic
+forgetting, using p
+′
+s = λ
+1
+B + (1 − λ)ps
+, where λ is the
+uniform sampling ratio. Starting bins are then drawn from
+Multinomial(p
+′
+1
+, . . . , p′
+S
+), prioritizing challenging regions.
+G. Domain Randomization
+We apply three domain randomization terms: the ground
+friction coefficient, default joint positions q¯j (for both actions and observations, effectively simulating joint offset
+calibration errors), and the torso’s center of mass position.
+Additionally, we introduce perturbations in the environment
+during training to encourage the robot to learn policies robust
+to environmental variability.
+IV. TRAJECTORY SYNTHESIS VIA GUIDED DIFFUSION
+In this section, we present our state-action motion synthesis framework that enables task-specific control through
+guided diffusion. We first describe the training procedure,
+then detail the guidance mechanisms.
+A. Training
+We employ Diffuse-CLoC [3] to create a state-action
+co-diffusion framework capable of generating physicallygrounded robot actions through guided sampling in state
+space. The model is trained to predict future trajectories,
+τt = [at, st+1, . . . , st+H, at+H], of a look-ahead horizon
+of H timesteps, conditioned on an observation history Ot =
+[st−N , at−N , · · · , st] of N steps of preceding state-action
+pairs.
+The training itself follows a standard denoising diffusion
+process. First, in a forward pass, we incrementally add
+Gaussian noise to ground-truth trajectories. A denoising
+network, x0,θ, then learns to reverse this corruption. It takes
+a noised trajectory τ
+k
+t
+as input and is trained to predict
+the original, clean trajectory τˆ
+0
+t = x0,θ(τ
+k
+t
+, Ot, k). The
+network’s parameters are optimized by minimizing the Mean
+Squared Error (MSE) loss against the ground truth:
+L = MSE(x0,θ(τ
+k
+t
+, Ot, k), τt) (4)
+During inference, new trajectories are generated by starting with random noise and iteratively refining it using t
+learned denoising function, following the DDPM update rule
+[40]:
+τ
+k−1
+t = αk(τ
+k
+t − γkϵθ(τ
+k
+t
+, Ot, k) + N (0, σk
+2
+I)) (5)
+Here, ϵθ(·) is the predicted noise derived from the clean
+trajectory estimate x0,θ(·), αk, γk, and σk are DDPM
+coefficients. We use independent noise schedules for states
+and actions, denoted by k = (ks, ka).
+B. Guidance
+To direct the model toward specific objectives during inference, we use classifier guidance. Through Bayes’ theorem
+[41], the score of a conditional distribution is decomposed
+into the model’s learned unconditional score and a separate
+guidance term:
+∇τ log p(τ | τ
+∗
+) = ∇τ log p(τ ) + ∇τ log p(τ
+∗
+| τ ), (6)
+where τ
+∗
+is the optimal trajectory. In our application, this
+guidance term is a differentiable, task-specific cost function,
+Gc(τ ). By establishing a relationship between the cost and
+the conditional likelihood, p(τ
+∗
+| τ ) ∝ exp(−Gc(τ )), the
+guidance term simplifies to the negative gradient of the cost:
+−∇τGc(τ ).
+This gradient provides a signal that drives the sampling
+process toward lower-cost regions of the trajectory space.
+This approach is highly versatile, enabling a single pretrained model to be adapted to diverse objectives at inference
+time. We demonstrate this by evaluating our framework on
+three representative tasks, each defined by different types of
+trajectory constraints.
+C. Downstream Tasks
+We show joystick steering, waypoint navigation, and obstacle avoidance as examples of task-specific cost functions.
+For joystick steering, we define the cost function as the
+squared difference between the state prediction and the
+joystick input:
+Gjs(τ ) = 1
+2
+tX
++H
+t
+′=t
+∥Vxy,t′ (τt
+′ ) − gv∥
+2
+, (7)
+where τ is the predicted trajectory at timestep t, Vxy,t pulls
+out the planar root velocity at timestep t and gv ∈ R
+2
+is the
+goal root velocity from the joystick controller.
+For the waypoint task, the cost function rewards proximity
+to the target while increasingly penalizing velocity as the
+agent gets closer, ensuring a stop upon arrival.
+Gwp(τ ) =
+tX
++H
+t
+′=t
+(1−e
+−2d
+)∥Px(st
+′ )−gp∥
+2+e
+−2d
+∥Vx,t′ (τt
+′ )∥
+2
+,
+(8)
+where d = ∥Px(st
+′ )−gp∥ is the current scalar distance from
+the goal gp, detached from the gradient computation.
+For collision avoidance, we build a Signed Distance Field
+(SDF) to obtain the distance and gradient between body
+positions and the nearest object, and define the cost function
+as:
+Gsdf(τ ) =
+tX
++H
+t
+′=t
+X
+b∈B
+B(SDF(Pb,t′ (τ )) − ri
+, δ), (9)
+where Pb,t(τ ) is the position of body b at time t given
+trajectory τ , ri
+is the approximation sphere radius of body
+b, and B(x, δ) is a relaxed barrier function [42]:
+B(x, δ) = (
+− ln(x) if x ≥ δ
+− ln(δ) + 1
+2
+h
+x−2δ
+δ
+2
+− 1
+i
+if x < δ
+. (10)
+V. MOTION TRACKING EXPERIMENTS AND RESULTS
+This section presents the experimental validation of the
+motion tracking framework through both simulation and realworld deployment on the Unitree G1 humanoid robot, showing high-quality, robust and highly dynamic motions. Note
+that we train all policies with the same set of hyperparameters
+throughout this section.
+A. Sim-to-Sim Performance
+We use the LAFAN1 dataset [43], retargeted by Unitree, which includes diverse and agile human motions
+such as sprinting, turning jumps, and crawling, along with
+short single-motion clips from prior works [16], [14]. The
+LAFAN1 dataset contains 40 several-minute-long references,
+each in a broad category with many distinct motions within
+that category. We randomly select 25 of these references,
+ensuring at least one from each category, and find that all
+can be completed in full during sim-to-sim evaluation. Due
+to the limited space of our test field, we purposely select
+29 challenging clips from these references, each featuring
+dynamic and contact-rich behaviors, and test them on hardware to evaluate the sim-to-real transfer performance. The
+complete list of motions we have tested in sim-to-sim and
+sim-to-real transfer is available in Table I.
+B. Real-world Experiment Setup
+We deploy our motion tracking policies, trained using the
+proposed method, on the Unitree G1 humanoid robot. All
+deployment code is written in C++ and optimized for realtime execution. Full-state estimation is provided at 500 Hz
+using a low-level generalized momentum observer combined
+with a Kalman filter [44]. Notably, no external motion
+capture system is used for tracking.
+For extreme, contact-rich behaviors (e.g., getting up from
+the ground), we either incorporate LiDAR-inertial odometry (LIO) [45] for position correction or exclude stateestimation-dependent observations altogether.
+All policies are executed onboard using ONNX Runtime [46] on the robot’s CPU. Each inference step takes
+under 1.0 ms, allowing seamless integration into the realtime estimation and control loop
+TABLE I
+MOTION SEGMENTS TESTED IN SIM AND REAL.
+Name Sim Real [s]
+Short Sequency
+Cristiano Ronaldo [14] Full Full
+Side Kick [15] Full Full
+Single Leg Balance [16] Full Full
+Swallow Balance [16] Full Full
+LAFAN1 [43] (about 3 minutes each)
+walk1 subject1 Full [0.0, 33.0]
+[81.2, 86.7]
+walk1 subject2 Full -
+walk1 subject5 Full [146.7, 159.0]
+[206.7, 263.7]
+walk2 subject1 Full -
+walk2 subject3 Full [42.7, 75.7]
+[217.6, 230.6]
+walk2 subject4 Full [154.4, 164.4]
+[218.6, 238.6]
+dance1 subject1 Full [0.0, 118.0]
+dance1 subject2 Full Full
+dance1 subject3 Full -
+dance2 subject1 Full -
+dance2 subject2 Full -
+dance2 subject3 Full [43.1, 163.1]
+[164.3, 184.3]
+dance2 subject4 Full [156.3, end]
+dance2 subject4 Full -
+fallAndGetUp1 subject4 Full -
+fallAndGetUp2 subject2 Full [0.0, 21.0]
+[74.0, 91.2]
+[94.0, 109.0]
+fallAndGetUp2 subject3 Full [26.5, 46.5]
+run1 subject2 Full [0.0, 50.0]
+run1 subject4 Full -
+run1 subject5 Full -
+run2 subject1 Full [0.0, 11.0]
+[167.4, 204.4]
+jumps1 subject1 Full [24.3, 42.3]
+[71.6, 81.6]
+[205.5, 226.5]
+jumps1 subject2 Full -
+jumps1 subject5 Full -
+fightAndSports1 subject1 Full [16.8, 25.4]
+[201.6, end]
+fightAndSports1 subject4 Full -
+fight1 subject2 Full -
+fight1 subject3 Full -
+fight1 subject5 Full -
+C. Real-world Performance
+We categorize and showcase four distinct classes of motion
+to demonstrate the superior performance, versatility, and
+generality of our motion tracking framework. Our evaluation
+includes challenging motions previously demonstrated by
+specialized frameworks, as well as novel sequences that have
+not, to our knowledge, been shown in prior works.
+a) Short Dynamic Motions Previously Demonstrated:
+We begin with dynamic motions that have been featured in
+earlier works specialized in these motions, such as Cristiano
+Ronaldo’s iconic celebration from ASAP [14] and a sidekick
+from KungfuBot [15]. Our system exhibits remarkable robustness in tracking these complex motions. Notably, while
+prior works demonstrate only single instances, our framework is capable of repeating these motions five times in
+succession by manually toggling the controller, without any
+degradation in stability or tracking quality.
+b) Static Motions Requiring Strong Balance: We next
+consider motions that demand high levels of balance and
+postural control, including single-leg standing and the Swallow Exercise Balance from HuB [16]. Unlike HuB, which
+relies on task-specific domain randomization and parameter
+tuning for each motion, our framework completes these tasks
+using the same hyperparameters across all other motions.
+Although our policies may experience occasional recoveries,
+the motions can be completed successfully, highlighting the
+generality and robustness of our approach.
+c) Extremely Dynamic and Previously Undemonstrated
+Motions: We push the limits of humanoid motion tracking
+by executing highly dynamic motions that have not, to our
+knowledge, been demonstrated by existing research (with
+the possible exception of Boston Dynamics Atlas). These
+include double- and single-leg hopping, two cartwheels in a
+row, out-and-back sprints, and forward jumps with 180◦
+and
+360◦
+spins. Motions like the 360◦
+spin jump are physically
+demanding even for adult humans, yet our policy performs
+them fluidly and reliably. Remarkably, these are not isolated
+clips, but parts of the three-minute long references, highlighting our framework’s ability to scale to long motion sequences
+while preserving both precision and extreme agility hidden
+in the dataset.
+d) Stylized and Expressive Motions: Last but not least,
+a fundamental objective of motion tracking is not only to
+execute motions stably, but to capture the stylistic elements
+that make them recognizably human. A framework should
+therefore be trained not just to avoid falling, but to preserve
+the timing, posture, and expression inherent in the original
+motion. Among the most stylistically rich categories in
+motion datasets are dancing and walking with diverse gaits.
+To this end, we demonstrate a wide variety of stylized motions, including the Charleston dance, Moonwalk, transitions
+from walking to crawling, elderly-style walking, and sport
+movements such as badminton and tennis. Our framework
+faithfully retains these stylistic features, producing motions
+that are instantly recognizable to casual observers. This
+highlights the capacity of our framework to go beyond
+stability to deliver high-fidelity, human-like behavior.
+By successfully executing a wide spectrum of motions—ranging from static to highly dynamic, from wellstudied to newly demonstrated, and from athletic feats to
+stylized motions—we show that our framework is robust and
+accurate, and scalable, expressive, and broadly applicable.
+These results demonstrate a unified motion-tracking system
+that attains this breadth and quality without task-specific
+tuning.
+D. Ablation on Adaptive Sampling
+We ablate adaptive sampling during training to evaluate its
+effectiveness, using convergence speed as the metric. Convergence is defined as completing the entire motion in the simto-sim evaluation. As shown in Table II, adaptive sampling
+is critical for learning difficult segments in long motion
+sequences. Without it, all the long sequences listed failed
+sim-to-sim evaluation in mujoco [47] even after 30k training
+TABLE II
+ABLATION ON ITERATIONS TO CONVERGENCE WITH ADAPTIVE
+SAMPLING (AS)
+Motion w/o AS w/ AS
+Christiano Ronaldo [14] 3k 1.5k
+Swallow Balance [16] 2.8k 1.8k
+dance1 subject1 Failed (cartwheel) 8k
+dance2 subject1 Failed (jump-spining) 9k
+fightAndSports1 subject1 Failed (balance) 10k
+iterations, stalling at challenging motions such as balancing
+and cartwheels. With adaptive sampling, these sequences
+converged in only 10k iterations. Even for short motions
+like Cristiano Ronaldo from ASAP [14], adaptive sampling
+halved the required iterations (1.5k vs. 3k). These results
+demonstrate that adaptive sampling significantly accelerates
+training and improves robustness.
+VI. DIFFUSION EXPERIMENTS AND RESULTS
+For the guided diffusion policy, we test key ablations for
+its sim-to-real transfer. In particular, we examine the role of
+the state representation and demonstrate that selecting the
+appropriate representation is critical for performance.
+A. Data
+We use a subset of AMASS [48] and LAFAN1 [43] containing diverse walking motions. We train motion tracking
+controllers for each motion skill to generate action labels.
+Since diffusion models require multiple denoising steps
+during inference, there is a significant enough delay between
+receiving an observation and commanding an action. To
+account for this latency, we include action delay domain
+randomization during training,
+Once the trackers are trained, we follow a data collection
+procedure similar to PDP [34] and Diffuse-CLoC [3], where
+offline datasets are collected by rolling out the expert policy
+but with domain randomization added as a key difference.
+B. Experiment Setup
+We train BeyondMimic using an observation history of
+N = 4 and predict a future horizon of H = 16. We limit the
+action prediction horizon to 8 steps through loss masking.
+The model uses a Transformer decoder with 6 layers, 4
+attention heads, and a 512-dimensional embedding, totaling
+19.95M parameters. Training is performed with 20 denoising
+steps and an attention dropout probability of 0.3.
+At test time, the diffusion policy runs offboard using
+TensorRT on an NVIDIA RTX 4060 Mobile GPU. Inference is performed asynchronously in a separate thread due
+to latency; each step takes approximately 20 ms using 20
+denoising steps. Gradients of the guiding cost are computed
+automatically using CppAD [49] within each denoising iteration. For the joint diffusion model, motion capture data
+is used to provide both environmental context for cost
+computation and improved state estimation in evaluation.
+TABLE III
+SUCCESS RATE ON DIFFUSION STATE REPRESENTATION ABLATION
+State Representation Walk + Perturb Joystick Control
+Body-Pos State 100% 80%
+Joint-Rot State 72% 0%
+C. Tasks and Metrics
+We evaluate our method on two tasks:
+• Walk-Perturb: During a 15-second walk, we apply
+instantaneous root velocity perturbations sampled uniformly from 0 to 0.5 m/s once every second. We measure the fall rate in simulation.
+• Joystick Control: We issue a sequence of directional commands: forward, backward, turn left, turn
+right—each lasting 3 seconds. Failure to follow commands or maintain balance is counted as a failure.
+A fall is defined as any episode where the head height
+drops below 0.2 m. Each experiment is run 50 times.
+D. State Representation Ablation
+Choosing an appropriate state representation is critical for
+successful sim-to-real transfer. Local joint representations offer compactness and computational efficiency, making them
+attractive for real-time control applications. In contrast, predicting body positions directly requires larger representations
+and correspondingly larger models with increased inference
+time, but provides explicit spatial grounding in Cartesian
+coordinates. This tradeoff between computational efficiency
+and spatial interpretability raises the question of which
+encoding best supports diffusion learning while ensuring
+successful sim-to-real transfer. To address this question, we
+compare two representations:
+• Body Pos State
+– Global States: Root position (R
+3
+), linear velocity
+(R
+3
+), and orientation represented as a rotation
+vector (R
+3
+). These are expressed relative to the
+character frame at the current timestep.
+– Local States: Cartesian positions (R
+3B), and linear
+velocities (R
+3B) of all bodies, expressed in the
+character frame at each timestep.
+• Joint Pos State
+– Global States: Same as above—root position, velocity, and orientation as rotation vectors relative to
+the current frame.
+– Local States: Joint angles (R
+J
+), where J is the
+number of joints, and joint velocities (R
+J
+).
+Table III depicts the performance of each representation
+for each of the two evaluated tasks. We find that the BodyPos state representation significantly outperforms Joint-Pos
+across both tasks. While Joint-Rot is theoretically more
+Markovian, small errors in joint position estimates accumulate through the kinematic chain, making this representation more susceptible to compounding diffusion prediction
+errors compared to directly predicting Cartesian body poses.
+Furthermore, adding guidance for joystick control on the
+Joint-Rot state fails quickly and abruptly, even after careful
+tuning, likely because the base controller lacks robustness,
+and guidance pushes it further out of distribution.
+VII. DISCUSSION AND FUTURE WORK
+A. Sim-to-Real
+Overall, we achieve strong sim-to-real performance across
+a wide range of motions for both tracking and the diffusion policy. The high-quality sim-to-real transfer likely
+stems from careful problem formulation and implementation,
+including accurate modeling with targeted randomization to
+avoid excessive domain randomization, design of observation
+and action space, and a low-latency C++ framework for
+communication and policy input/output processing.
+By carefully addressing these key engineering details, we
+formulate the problem in a simple yet efficient way. These
+practices yield a small sim-to-real gap without requiring
+complex techniques such as real-to-sim adaptation or motionspecific randomization parameters, providing a strong foundation for future agile humanoid control. We will provide
+code for the motion tracking pipeline, where the reported
+performance can be reproduced on other robots of the same
+type.
+Nonetheless, we still encounter occasional failures caused
+by state estimation drift, particularly when the end-effector
+contact assumption is violated, such as during the get-up
+motion for the tracking policy or in some diffusion policy’s
+recovery mode. Developing a state estimator that generalizes
+across such diverse motions remains a challenging problem
+and is left for future work.
+B. Out-of-Distribution Behavior
+A notable finding is that the diffusion model behaviour
+is inert compared to RL. In out-of-distribution scenarios,
+such as when the robot falls or is physically obstructed by
+a gantry, the robot tends to remain largely stationary. This
+allows human operators to simply and safely reposition the
+robot back up to be in distribution. This contrasts with typical
+RL policies, which often produce erratic or unstable behavior
+in such situations. The mild out of distribution behaviour
+exhibited by diffusion models could be highly beneficial for
+real-world deployment, where human safety and stability are
+critical.
+C. Skill Transitions
+A key limitation of current action based diffusion models
+lies in their difficulty in transitioning between distinct skills.
+We can conceptualize these models as learning a manifold
+where each skill corresponds to a specific curve, with transitions occurring at the intersections between curves. While
+classifier guidance serves as a mechanism for directing the
+model to snap onto different curves, this approach becomes
+problematic when the target skill lies too far away on the
+manifold. In such cases, the model often becomes trapped
+in its current mode, unable to make the necessary transition.
+Future work could look into improving the ability for the
+model to transition between skills.
+VIII. ACKNOWLEDGMENT
+We would like to thank Amazon for letting us use their
+facility. This work is supported in part by NSF CMMI1944722, The Robotics and AI Institute, and BAIR Humanoid Intelligence Center, and in part by Stanford Institute
+for Human-Centered AI, Wu-Tsai Human Performance Alliance, NSF FRR-2153854. We would like to thank Kevin
+Zakka for the thoughtful discussion, Yuman Gao, and Zhi
+Su for their help in the experiments.
+REFERENCES
+[1] Z. Luo, J. Cao, J. Merel, A. Winkler, J. Huang, K. Kitani, and
+W. Xu, “Universal humanoid motion representations for physics-based
+control,” arXiv preprint arXiv:2310.04582, 2023.
+[2] C. Tessler, Y. Guo, O. Nabati, G. Chechik, and X. B. Peng, “Maskedmimic: Unified physics-based character control through masked motion inpainting,” ACM Transactions on Graphics (TOG), vol. 43, no. 6,
+pp. 1–21, 2024.
+[3] X. Huang, T. Truong, Y. Zhang, F. Yu, J. P. Sleiman, J. Hodgins,
+K. Sreenath, and F. Farshidian, “Diffuse-cloc: Guided diffusion
+for physics-based character look-ahead control,” 2025. [Online].
+Available: https://arxiv.org/abs/2503.11801
+[4] L. Pan, Z. Yang, Z. Dou, W. Wang, B. Huang, B. Dai, T. Komura, and
+J. Wang, “Tokenhsi: Unified synthesis of physical human-scene interactions through task tokenization,” in Proceedings of the Computer
+Vision and Pattern Recognition Conference, 2025, pp. 5379–5391.
+[5] R. Yu, Y. Wang, Q. Zhao, H. W. Tsui, J. Wang, P. Tan, and Q. Chen,
+“Skillmimic-v2: Learning robust and generalizable interaction skills
+from sparse and noisy demonstrations,” in Proceedings of the Special
+Interest Group on Computer Graphics and Interactive Techniques
+Conference Conference Papers, 2025, pp. 1–11.
+[6] G. B. Margolis and P. Agrawal, “Walk these ways: Tuning robot
+control for generalization with multiplicity of behavior,” in Conference
+on Robot Learning. PMLR, 2023, pp. 22–31.
+[7] I. Radosavovic, T. Xiao, B. Zhang, T. Darrell, J. Malik, and
+K. Sreenath, “Real-world humanoid locomotion with reinforcement
+learning,” Science Robotics, vol. 9, no. 89, p. eadi9579, 2024.
+[8] Z. Xie, G. Berseth, P. Clary, J. Hurst, and M. Van de Panne, “Feedback
+control for cassie with deep reinforcement learning,” in 2018 IEEE/RSJ
+International Conference on Intelligent Robots and Systems (IROS).
+IEEE, 2018, pp. 1241–1246.
+[9] N. Rudin, D. Hoeller, P. Reist, and M. Hutter, “Learning to walk
+in minutes using massively parallel deep reinforcement learning,” in
+Conference on robot learning. PMLR, 2022, pp. 91–100.
+[10] X. B. Peng, P. Abbeel, S. Levine, and M. van de Panne, “Deepmimic:
+Example-guided deep reinforcement learning of physics-based
+character skills,” ACM Trans. Graph., vol. 37, no. 4, pp. 143:1–
+143:14, Jul. 2018. [Online]. Available: http://doi.acm.org/10.1145/
+3197517.3201311
+[11] X. B. Peng, E. Coumans, T. Zhang, T.-W. Lee, J. Tan, and S. Levine,
+“Learning agile robotic locomotion skills by imitating animals,” arXiv
+preprint arXiv:2004.00784, 2020.
+[12] X. Huang, Z. Li, Y. Xiang, Y. Ni, Y. Chi, Y. Li, L. Yang, X. B. Peng,
+and K. Sreenath, “Creating a dynamic quadrupedal robotic goalkeeper
+with reinforcement learning,” in 2023 IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS). IEEE, 2023, pp.
+2715–2722.
+[13] Z. Li, X. B. Peng, P. Abbeel, S. Levine, G. Berseth, and K. Sreenath,
+“Reinforcement learning for versatile, dynamic, and robust bipedal
+locomotion control,” The International Journal of Robotics Research,
+vol. 44, no. 5, pp. 840–888, 2025.
+[14] T. He, J. Gao, W. Xiao, Y. Zhang, Z. Wang, J. Wang, Z. Luo, G. He,
+N. Sobanbab, C. Pan et al., “Asap: Aligning simulation and real-world
+physics for learning agile humanoid whole-body skills,” arXiv preprint
+arXiv:2502.01143, 2025.
+[15] W. Xie, J. Han, J. Zheng, H. Li, X. Liu, J. Shi, W. Zhang, C. Bai,
+and X. Li, “Kungfubot: Physics-based humanoid whole-body control
+for learning highly-dynamic skills,” arXiv preprint arXiv:2506.12851,
+2025.
+[16] T. Zhang, B. Zheng, R. Nai, Y. Hu, Y.-J. Wang, G. Chen, F. Lin, J. Li,
+C. Hong, K. Sreenath, and Y. Gao, “Hub: Learning extreme humanoid
+balance,” arXiv preprint arXiv:2505.07294, 2025.
+[17] Z. Luo, J. Cao, A. Winkler, K. Kitani, and W. Xu, “Perpetual humanoid
+control for real-time simulated avatars,” in 2023 IEEE/CVF International Conference on Computer Vision (ICCV), 2023, pp. 10 861–
+10 870.
+[18] T. He, Z. Luo, X. He, W. Xiao, C. Zhang, W. Zhang, K. M. Kitani,
+C. Liu, and G. Shi, “Omnih2o: Universal and dexterous human-tohumanoid whole-body teleoperation and learning,” in Conference on
+Robot Learning. PMLR, 2025, pp. 1516–1540.
+[19] X. Cheng, Y. Ji, J. Chen, R. Yang, G. Yang, and X. Wang, “Expressive whole-body control for humanoid robots,” arXiv preprint
+arXiv:2402.16796, 2024.
+[20] Z. Fu, Q. Zhao, Q. Wu, G. Wetzstein, and C. Finn, “Humanplus:
+Humanoid shadowing and imitation from humans,” arXiv preprint
+arXiv:2406.10454, 2024.
+[21] Y. Ze, Z. Chen, J. P. AraA˜sjo, Z.-a. Cao, X. B. Peng, J. Wu, and ˇ
+C. K. Liu, “Twist: Teleoperated whole-body imitation system,” arXiv
+preprint arXiv:2505.02833, 2025.
+[22] Y. Li, Y. Lin, J. Cui, T. Liu, W. Liang, Y. Zhu, and S. Huang,
+“Clone: Closed-loop whole-body humanoid teleoperation for longhorizon tasks,” arXiv preprint arXiv:2506.08931, 2025.
+[23] K. Yin, W. Zeng, K. Fan, Z. Wang, Q. Zhang, Z. Tian, J. Wang, J. Pang,
+and W. Zhang, “Unitracker: Learning universal whole-body motion
+tracker for humanoid robots,” arXiv preprint arXiv:2507.07356, 2025.
+[24] Z. Chen, M. Ji, X. Cheng, X. Peng, X. B. Peng, and X. Wang, “Gmt:
+General motion tracking for humanoid whole-body control,” arXiv
+preprint arXiv:2506.14770, 2025.
+[25] R. Grandia, E. Knoop, M. A. Hopkins, G. Wiedebach, J. Bishop,
+S. Pickles, D. Muller, and M. B ¨ acher, “Design and control of a bipedal ¨
+robotic character,” arXiv preprint arXiv:2501.05204, 2025.
+[26] G. Tevet, S. Raab, B. Gordon, Y. Shafir, D. Cohen-or, and A. H.
+Bermano, “Human motion diffusion model,” in The Eleventh International Conference on Learning Representations, 2023.
+[27] J. Tseng, R. Castellon, and K. Liu, “Edge: Editable dance generation
+from music,” in Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), June 2023, pp. 448–458.
+[28] Z. Xie, J. Tseng, S. Starke, M. van de Panne, and C. K. Liu,
+“Hierarchical planning and control for box loco-manipulation,” pp.
+1–18, 2023.
+[29] K. Karunratanakul, K. Preechakul, S. Suwajanakorn, and S. Tang,
+“ Guided Motion Diffusion for Controllable Human Motion
+Synthesis ,” in 2023 IEEE/CVF International Conference on
+Computer Vision (ICCV). Los Alamitos, CA, USA: IEEE Computer
+Society, Oct. 2023, pp. 2151–2162. [Online]. Available: https:
+//doi.ieeecomputersociety.org/10.1109/ICCV51070.2023.00205
+[30] G. Tevet, S. Raab, S. Cohan, D. Reda, Z. Luo, X. B. Peng, A. H.
+Bermano, and M. van de Panne, “Closd: Closing the loop between
+simulation and diffusion for multi-task character control,” 2024.
+[Online]. Available: https://arxiv.org/abs/2410.03441
+[31] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake,
+and S. Song, “Diffusion policy: Visuomotor policy learning via action diffusion,” The International Journal of Robotics Research, p.
+02783649241273668, 2023.
+[32] X. Huang, Y. Chi, R. Wang, Z. Li, X. B. Peng, S. Shao,
+B. Nikolic, and K. Sreenath, “Diffuseloco: Real-time legged
+locomotion control with diffusion from offline datasets,” in 8th
+Annual Conference on Robot Learning, 2024. [Online]. Available:
+https://openreview.net/forum?id=nVJm2RdPDu
+[33] G. Mothish, M. Tayal, and S. Kolathaya, “Birodiff: Diffusion policies
+for bipedal robot locomotion on unseen terrains,” 2024. [Online].
+Available: https://arxiv.org/abs/2407.05424
+[34] T. E. Truong, M. Piseno, Z. Xie, and C. K. Liu, “Pdp: Physics-based
+character animation via diffusion policy,” in SIGGRAPH Asia 2024
+Conference Papers, ser. SA ’24. ACM, Dec. 2024, p. 1–10. [Online].
+Available: http://dx.doi.org/10.1145/3680528.3687683
+[35] D. McAllister, S. Ge, B. Yi, C. M. Kim, E. Weber, H. Choi, H. Feng,
+and A. Kanazawa, “Flow matching policy gradients,” arXiv preprint
+arXiv:2507.21053, 2025.
+[36] M. Janner, Y. Du, J. Tenenbaum, and S. Levine, “Planning
+with diffusion for flexible behavior synthesis,” in Proceedings
+of the 39th International Conference on Machine Learning, ser.
+Proceedings of Machine Learning Research, K. Chaudhuri, S. Jegelka,
+L. Song, C. Szepesvari, G. Niu, and S. Sabato, Eds., vol. 162.
+PMLR, 17–23 Jul 2022, pp. 9902–9915. [Online]. Available:
+https://proceedings.mlr.press/v162/janner22a.html
+[37] A. Ajay, Y. Du, A. Gupta, J. Tenenbaum, T. Jaakkola, and
+P. Agrawal, “Is conditional generative modeling all you need for
+decision-making?” 2023. [Online]. Available: https://openreview.net/
+forum?id=sP1fo2K9DFG
+[38] Y. Zhou, C. Barnes, J. Lu, J. Yang, and H. Li, “On the continuity
+of rotation representations in neural networks,” in Proceedings of the
+IEEE/CVF conference on computer vision and pattern recognition,
+2019, pp. 5745–5753.
+[39] M. Raibert and F. Farshidian, “Workshop on whole-body control
+and bimanual manipulation: Applications in humanoids and beyond,”
+Jun. 2025, presented at the Workshop on Whole-body Control and
+Bimanual Manipulation: Applications in Humanoids and Beyond,
+Robotics: Science and Systems (RSS) 2025.
+[40] M. Welling and Y. W. Teh, “Bayesian learning via stochastic gradient
+langevin dynamics,” in Proceedings of the 28th international conference on machine learning (ICML-11), 2011, pp. 681–688.
+[41] Y. Song, J. Sohl-Dickstein, D. P. Kingma, A. Kumar, S. Ermon,
+and B. Poole, “Score-based generative modeling through stochastic
+differential equations,” in International Conference on Learning Representations, 2021.
+[42] R. Grandia, F. Farshidian, R. Ranftl, and M. Hutter, “Feedback
+mpc for torque-controlled legged robots,” 2019. [Online]. Available:
+https://arxiv.org/abs/1905.06144
+[43] F. G. Harvey, M. Yurick, D. Nowrouzezahrai, and C. Pal, “Robust motion in-betweening,” in ACM Transactions on Graphics (Proceedings
+of ACM SIGGRAPH), vol. 39, no. 4. ACM, 2020.
+[44] T. Flayols, A. Del Prete, P. Wensing, A. Mifsud, M. Benallegue,
+and O. Stasse, “Experimental evaluation of simple estimators for
+humanoid robots,” in 2017 IEEE-RAS 17th International Conference
+on Humanoid Robotics (Humanoids). IEEE, 2017, pp. 889–895.
+[45] K. Koide, M. Yokozuka, S. Oishi, and A. Banno, “Glim: 3d rangeinertial localization and mapping with gpu-accelerated scan matching
+factors,” Robotics and Autonomous Systems, vol. 179, p. 104750, 2024.
+[46] O. R. developers, “Onnx runtime,” https://onnxruntime.ai/, 2021, version: x.y.z.
+[47] E. Todorov, T. Erez, and Y. Tassa, “Mujoco: A physics engine for
+model-based control,” in 2012 IEEE/RSJ International Conference on
+Intelligent Robots and Systems, 2012, pp. 5026–5033.
+[48] N. Mahmood, N. Ghorbani, N. F. Troje, G. Pons-Moll, and M. J.
+Black, “AMASS: Archive of motion capture as surface shapes,” in
+International Conference on Computer Vision, Oct. 2019, pp. 5442–
+5451.
+[49] B. M. Bell, “Cppad: A package for c++ algorithmic differentiation,” https://github.com/coin-or/CppAD/tree/stable/20190200, 2019,
+version 20190200.5, commit 6d82707ef4.
