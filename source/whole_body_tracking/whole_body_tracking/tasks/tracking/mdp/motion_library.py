@@ -70,7 +70,7 @@ class MotionLibrary:
             
             # Load motion
             motion = MotionLoader(motion_file, body_indexes, device)
-            motion_duration = motion.time_step_total / motion.fps
+            motion_duration = float(motion.time_step_total) / float(motion.fps)
             
             # Create adaptive sampler for this motion
             sampler = AdaptiveSampler(
@@ -91,7 +91,7 @@ class MotionLibrary:
             self.adaptive_samplers.append(sampler)
             self.motion_names.append(motion_name)
             
-            print(f"    Duration: {motion_duration:.1f}s, FPS: {motion.fps}, Frames: {motion.time_step_total}")
+            print(f"    Duration: {motion_duration:.1f}s, FPS: {float(motion.fps)}, Frames: {int(motion.time_step_total)}")
         
         # Motion sampling statistics (for potential future adaptive motion selection)
         self.motion_episode_counts = torch.zeros(self.num_motions, device=device, dtype=torch.float32)

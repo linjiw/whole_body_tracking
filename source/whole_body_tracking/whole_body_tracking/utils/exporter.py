@@ -33,12 +33,20 @@ class _OnnxMotionPolicyExporter(_OnnxPolicyExporter):
         super().__init__(actor_critic, normalizer, verbose)
         cmd: MotionCommand = env.command_manager.get_term("motion")
 
-        self.joint_pos = cmd.motion.joint_pos.to("cpu")
-        self.joint_vel = cmd.motion.joint_vel.to("cpu")
-        self.body_pos_w = cmd.motion.body_pos_w.to("cpu")
-        self.body_quat_w = cmd.motion.body_quat_w.to("cpu")
-        self.body_lin_vel_w = cmd.motion.body_lin_vel_w.to("cpu")
-        self.body_ang_vel_w = cmd.motion.body_ang_vel_w.to("cpu")
+        # Handle both single-motion and multi-motion cases
+        if hasattr(cmd, 'motion_library'):
+            # Multi-motion case: use first motion for export
+            motion = cmd.motion_library.motions[0]
+        else:
+            # Single-motion case
+            motion = cmd.motion
+            
+        self.joint_pos = motion.joint_pos.to("cpu")
+        self.joint_vel = motion.joint_vel.to("cpu")
+        self.body_pos_w = motion.body_pos_w.to("cpu")
+        self.body_quat_w = motion.body_quat_w.to("cpu")
+        self.body_lin_vel_w = motion.body_lin_vel_w.to("cpu")
+        self.body_ang_vel_w = motion.body_ang_vel_w.to("cpu")
         self.time_step_total = self.joint_pos.shape[0]
 
     def forward(self, x, time_step):

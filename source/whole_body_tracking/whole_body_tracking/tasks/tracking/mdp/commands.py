@@ -84,7 +84,7 @@ class MotionCommand(CommandTerm):
             )
             self.is_multi_motion = True
             print(f"Multi-motion training initialized with {self.motion_library.num_motions} motions")
-        else:
+        elif cfg.motion_file:
             # Single-motion training (backward compatibility)
             self.motion = MotionLoader(self.cfg.motion_file, self.body_indexes, device=self.device)
             motion_duration = self.motion.time_step_total / self.motion.fps
@@ -100,6 +100,8 @@ class MotionCommand(CommandTerm):
             )
             self.is_multi_motion = False
             print("Single-motion training initialized")
+        else:
+            raise ValueError("Either motion_file or motion_files must be specified")
 
         self.time_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.body_pos_relative_w = torch.zeros(self.num_envs, len(cfg.body_names), 3, device=self.device)
@@ -503,8 +505,8 @@ class MotionCommandCfg(CommandTermCfg):
 
     asset_name: str = MISSING
 
-    motion_file: str = MISSING
-    motion_files: list[str] = []  # New: for multi-motion training
+    motion_file: str = ""  # Optional: for single-motion training (backward compatibility)
+    motion_files: list[str] = []  # Optional: for multi-motion training
     anchor_body: str = MISSING
     body_names: list[str] = MISSING
 

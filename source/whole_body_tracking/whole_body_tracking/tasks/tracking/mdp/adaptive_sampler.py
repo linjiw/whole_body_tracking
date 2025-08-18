@@ -88,9 +88,9 @@ class AdaptiveSampler:
         
         print(f"AdaptiveSampler initialized:")
         print(f"  Motion: {motion_name} (ID: {motion_id})")
-        print(f"  Duration: {motion_duration:.1f}s @ {motion_fps}fps = {self.total_frames} frames")
-        print(f"  Bins: {self.num_bins} bins of {bin_size_seconds}s each ({self.frames_per_bin} frames/bin)")
-        print(f"  Parameters: γ={gamma}, λ={lambda_uniform}, K={K}, α={alpha_smooth}")
+        print(f"  Duration: {float(motion_duration):.1f}s @ {int(motion_fps)}fps = {int(self.total_frames)} frames")
+        print(f"  Bins: {self.num_bins} bins of {float(bin_size_seconds)}s each ({self.frames_per_bin} frames/bin)")
+        print(f"  Parameters: γ={float(gamma)}, λ={float(lambda_uniform)}, K={int(K)}, α={float(alpha_smooth)}")
     
     def frame_to_bin(self, frame_indices: torch.Tensor) -> torch.Tensor:
         """Convert frame indices to bin indices."""
