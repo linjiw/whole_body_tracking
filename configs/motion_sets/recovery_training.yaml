@@ -1,0 +1,10 @@
+name: "Recovery Training"
+description: "Fall and recovery motions for robustness training and failure recovery capabilities."
+motions:
+  # All fall and get up motions (6 total)
+  - "16726/csv_to_npz/fallAndGetUp1_subject1:latest"
+  - "16726/csv_to_npz/fallAndGetUp1_subject4:latest"
+  - "16726/csv_to_npz/fallAndGetUp1_subject5:latest"
+  - "16726/csv_to_npz/fallAndGetUp2_subject2:latest"
+  - "16726/csv_to_npz/fallAndGetUp2_subject3:latest"
+  - "16726/csv_to_npz/fallAndGetUp3_subject1:latest"

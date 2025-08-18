@@ -1,0 +1,16 @@
+name: "Walking Only"
+description: "All walking motions from the LAFAN1 dataset for focused locomotion training."
+motions:
+  # All walking motions (12 total)
+  - "16726/csv_to_npz/walk1_subject1:latest"
+  - "16726/csv_to_npz/walk1_subject2:latest"
+  - "16726/csv_to_npz/walk1_subject5:latest"
+  - "16726/csv_to_npz/walk2_subject1:latest"
+  - "16726/csv_to_npz/walk2_subject3:latest"
+  - "16726/csv_to_npz/walk2_subject4:latest"
+  - "16726/csv_to_npz/walk3_subject1:latest"
+  - "16726/csv_to_npz/walk3_subject2:latest"
+  - "16726/csv_to_npz/walk3_subject3:latest"
+  - "16726/csv_to_npz/walk3_subject4:latest"
+  - "16726/csv_to_npz/walk3_subject5:latest"
+  - "16726/csv_to_npz/walk4_subject1:latest"

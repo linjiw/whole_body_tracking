@@ -1,4 +1,25 @@
 name: "Dynamic Skills"
-description: "A set of highly dynamic and challenging motions for testing agility and complex movement patterns."
+description: "A set of highly dynamic and challenging motions including dance, jumps, fights, and recovery movements for testing agility and complex movement patterns."
 motions:
+  # Dance motions (4 selected)
   - "16726/csv_to_npz/dance1_subject1:latest"
+  - "16726/csv_to_npz/dance2_subject1:latest"
+  - "16726/csv_to_npz/dance2_subject3:latest"
+  - "16726/csv_to_npz/dance2_subject5:latest"
+  
+  # Jump motions (3 total)
+  - "16726/csv_to_npz/jumps1_subject1:latest"
+  - "16726/csv_to_npz/jumps1_subject2:latest"
+  - "16726/csv_to_npz/jumps1_subject5:latest"
+  
+  # Fight and sports motions (5 total)
+  - "16726/csv_to_npz/fight1_subject2:latest"
+  - "16726/csv_to_npz/fight1_subject3:latest"
+  - "16726/csv_to_npz/fight1_subject5:latest"
+  - "16726/csv_to_npz/fightAndSports1_subject1:latest"
+  - "16726/csv_to_npz/fightAndSports1_subject4:latest"
+  
+  # Fall and get up motions (3 selected)
+  - "16726/csv_to_npz/fallAndGetUp1_subject1:latest"
+  - "16726/csv_to_npz/fallAndGetUp2_subject2:latest"
+  - "16726/csv_to_npz/fallAndGetUp3_subject1:latest"

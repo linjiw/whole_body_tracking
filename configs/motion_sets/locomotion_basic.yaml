@@ -1,5 +1,20 @@
 name: "Basic Locomotion"
-description: "A small set of basic walking motions for quick validation and testing."
+description: "A curated set of basic locomotion motions covering walking, running, and sprinting for foundational movement training."
 motions:
+  # Walking motions (6 selected)
   - "16726/csv_to_npz/walk1_subject1:latest"
-  - "16726/csv_to_npz/dance1_subject1:latest"
+  - "16726/csv_to_npz/walk1_subject2:latest"
+  - "16726/csv_to_npz/walk2_subject1:latest"
+  - "16726/csv_to_npz/walk3_subject1:latest"
+  - "16726/csv_to_npz/walk3_subject2:latest"
+  - "16726/csv_to_npz/walk4_subject1:latest"
+  
+  # Running motions (4 total)
+  - "16726/csv_to_npz/run1_subject2:latest"
+  - "16726/csv_to_npz/run1_subject5:latest"
+  - "16726/csv_to_npz/run2_subject1:latest"
+  - "16726/csv_to_npz/run2_subject4:latest"
+  
+  # Sprint motions (2 total)
+  - "16726/csv_to_npz/sprint1_subject2:latest"
+  - "16726/csv_to_npz/sprint1_subject4:latest"
