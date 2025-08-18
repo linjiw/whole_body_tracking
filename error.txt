@@ -1,0 +1,62 @@
+(isaac_lab_0817) linji@robotixx-c2-v101:~/nfs/whole_body_tracking$ python scripts/replay_npz.py --registry_name=16726/csv_to_npz/dance1_subject1:latest --headless
+[INFO][AppLauncher]: Using device: cuda:0
+[INFO][AppLauncher]: Loading experience file: /home/linji/IsaacLab/apps/isaaclab.python.headless.kit
+Loading user config located at: '/home/linji/isaacsim/kit/data/Kit/Isaac-Sim/5.0/user.config.json'
+[Info] [carb] Logging to file: /home/linji/isaacsim/kit/logs/Kit/Isaac-Sim/5.0/kit_20250817_205659.log
+2025-08-18T00:57:00Z [249ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2025-08-18T00:57:00Z [618ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 570.133.20    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA RTX A6000                 | Yes: 0 |     | 49140   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 177903b0.. |
+|     |                                  |        |     |            | 6         |            |
+|=============================================================================================|
+| OS: 22.04.5 LTS (Jammy Jellyfish) ubuntu, Version: 22.04.5, Kernel: 6.8.0-64-generic
+| XServer Vendor: The X.Org Foundation, XServer Version: 12101004 (1.21.1.4)
+| Processor: Intel(R) Core(TM) i9-14900K
+| Cores: 20 | Logical Cores: 20
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 64261 | Free Memory: 55384
+| Total Page/Swap (MB): 2047 | Free Page/Swap: 2038
+|---------------------------------------------------------------------------------------------|
+cat: '/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor': No such file or directory
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 570.133.20    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA RTX A6000                 | Yes: 0 |     | 49140   MB | 10de      | 0          |
+|     |                                  |        |     |            | 2230      | 177903b0.. |
+|     |                                  |        |     |            | 6         |            |
+|=============================================================================================|
+| OS: 22.04.5 LTS (Jammy Jellyfish) ubuntu, Version: 22.04.5, Kernel: 6.8.0-64-generic
+| XServer Vendor: The X.Org Foundation, XServer Version: 12101004 (1.21.1.4)
+| Processor: Intel(R) Core(TM) i9-14900K
+| Cores: 20 | Logical Cores: 20
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 64261 | Free Memory: 55186
+| Total Page/Swap (MB): 2047 | Free Page/Swap: 2038
+|---------------------------------------------------------------------------------------------|
+cat: '/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor': No such file or directory
+2025-08-18T00:57:03Z [3,694ms] [Warning] [omni.graph.visualization.nodes._impl.extension] No Viewport Window to add omni.graph.visualization.nodes-2.1.3 scene to
+2025-08-18T00:57:03Z [3,773ms] [Warning] [isaacsim.asset.importer.urdf] link imu_in_pelvis has no body properties (mass, inertia, or collisions) and is being merged into pelvis
+2025-08-18T00:57:03Z [3,773ms] [Warning] [isaacsim.asset.importer.urdf] link LL_FOOT has no body properties (mass, inertia, or collisions) and is being merged into left_ankle_roll_link
+2025-08-18T00:57:03Z [3,773ms] [Warning] [isaacsim.asset.importer.urdf] link pelvis_contour_link has no body properties (mass, inertia, or collisions) and is being merged into pelvis
+2025-08-18T00:57:03Z [3,773ms] [Warning] [isaacsim.asset.importer.urdf] link LR_FOOT has no body properties (mass, inertia, or collisions) and is being merged into right_ankle_roll_link
+2025-08-18T00:57:03Z [3,773ms] [Warning] [isaacsim.asset.importer.urdf] link head_link has no body properties (mass, inertia, or collisions) and is being merged into torso_link
+2025-08-18T00:57:03Z [3,773ms] [Warning] [isaacsim.asset.importer.urdf] link imu_in_torso has no body properties (mass, inertia, or collisions) and is being merged into torso_link
+2025-08-18T00:57:03Z [3,773ms] [Warning] [isaacsim.asset.importer.urdf] link left_rubber_hand has no body properties (mass, inertia, or collisions) and is being merged into left_wrist_yaw_link
+2025-08-18T00:57:03Z [3,773ms] [Warning] [isaacsim.asset.importer.urdf] link logo_link has no body properties (mass, inertia, or collisions) and is being merged into torso_link
+2025-08-18T00:57:03Z [3,773ms] [Warning] [isaacsim.asset.importer.urdf] link mid360_link has no body properties (mass, inertia, or collisions) and is being merged into torso_link
+2025-08-18T00:57:03Z [3,773ms] [Warning] [isaacsim.asset.importer.urdf] link right_rubber_hand has no body properties (mass, inertia, or collisions) and is being merged into right_wrist_yaw_link
+wandb: Currently logged in as: linjiw (16726) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb:   1 of 1 files downloaded.
