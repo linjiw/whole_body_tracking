@@ -1,0 +1,23 @@
+name: "LAFAN1 Full Dataset"
+description: "Complete LAFAN1 dataset for large-scale multi-motion training experiments."
+# NOTE: This is a template for when all LAFAN1 motions are processed
+# Currently only dance1_subject1 and walk1_subject1 are available
+motions:
+  # Dance motions
+  - "16726/csv_to_npz/dance1_subject1:latest"
+  
+  # Walk motions  
+  - "16726/csv_to_npz/walk1_subject1:latest"
+  
+  # Future motions (uncomment when available):
+  # - "16726/csv_to_npz/walk2_subject1:latest"
+  # - "16726/csv_to_npz/walk3_subject2:latest"
+  # - "16726/csv_to_npz/run1_subject1:latest"
+  # - "16726/csv_to_npz/run2_subject1:latest"
+  # - "16726/csv_to_npz/run3_subject2:latest"
+  # - "16726/csv_to_npz/sprint1_subject1:latest"
+  # - "16726/csv_to_npz/fight1_subject1:latest"
+  # - "16726/csv_to_npz/fight2_subject1:latest"
+  # - "16726/csv_to_npz/fight3_subject3:latest"
+  # - "16726/csv_to_npz/jumps1_subject1:latest"
+  # - "16726/csv_to_npz/fallAndGetUp1_subject1:latest"

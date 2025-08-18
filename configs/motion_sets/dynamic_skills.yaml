@@ -1,0 +1,4 @@
+name: "Dynamic Skills"
+description: "A set of highly dynamic and challenging motions for testing agility and complex movement patterns."
+motions:
+  - "16726/csv_to_npz/dance1_subject1:latest"

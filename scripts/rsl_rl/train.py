@@ -24,8 +24,10 @@ parser.add_argument("--num_envs", type=int, default=None, help="Number of enviro
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument("--max_iterations", type=int, default=None, help="RL Policy training iterations.")
-parser.add_argument("--registry_name", type=str, required=True, 
-                   help="The name of the wandb registry. For multi-motion training, use comma-separated list.")
+parser.add_argument("--motion_set", type=str, default=None, 
+                   help="Name of a motion set YAML file in configs/motion_sets/ (e.g., 'locomotion_basic')")
+parser.add_argument("--registry_name", type=str, default=None, 
+                   help="(Optional) Comma-separated list of motion registry names. Overrides --motion_set.")
 
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -111,7 +113,38 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             
         return motion_files
     
-    registry_names = args_cli.registry_name
+    # Handle motion set configuration or direct registry names
+    import yaml
+    
+    registry_names_str = args_cli.registry_name
+    
+    # If a motion set file is provided and registry_name is not, use the file
+    if args_cli.motion_set and not registry_names_str:
+        motion_set_name = args_cli.motion_set
+        motion_set_path = os.path.join("configs", "motion_sets", motion_set_name)
+        if not motion_set_path.endswith('.yaml'):
+            motion_set_path += ".yaml"
+        
+        if not os.path.exists(motion_set_path):
+            raise FileNotFoundError(f"Motion set file not found: {motion_set_path}")
+
+        print(f"[INFO] Loading motion set from: {motion_set_path}")
+        with open(motion_set_path, 'r') as f:
+            motion_set_cfg = yaml.safe_load(f)
+        
+        registry_names_list = motion_set_cfg.get("motions", [])
+        if not registry_names_list:
+            raise ValueError(f"'motions' key not found or is empty in {motion_set_path}")
+        
+        registry_names_str = ",".join(registry_names_list)
+        print(f"[INFO] Loaded {len(registry_names_list)} motions for set: '{motion_set_cfg.get('name', motion_set_name)}'")
+        if 'description' in motion_set_cfg:
+            print(f"[INFO] Description: {motion_set_cfg['description']}")
+
+    if not registry_names_str:
+        raise ValueError("A motion must be provided via --motion_set or --registry_name")
+
+    registry_names = registry_names_str
     motion_files = load_motion_library(registry_names)
     
     # Set motion files in configuration

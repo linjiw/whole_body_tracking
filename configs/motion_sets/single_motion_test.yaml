@@ -1,0 +1,4 @@
+name: "Single Motion Test"
+description: "A single motion for testing single-motion compatibility through the motion set system."
+motions:
+  - "16726/csv_to_npz/dance1_subject1:latest"

@@ -1,0 +1,5 @@
+name: "Multi-Motion Test"
+description: "A comprehensive test set with multiple diverse motions for validating multi-motion training capabilities."
+motions:
+  - "16726/csv_to_npz/dance1_subject1:latest"
+  - "16726/csv_to_npz/walk1_subject1:latest"
