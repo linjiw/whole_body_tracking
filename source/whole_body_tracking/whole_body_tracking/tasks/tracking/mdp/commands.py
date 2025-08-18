@@ -72,27 +72,49 @@ class MotionCommand(CommandTerm):
             self.robot.find_bodies(self.cfg.body_names, preserve_order=True)[0], dtype=torch.long, device=self.device
         )
 
-        self.motion = MotionLoader(self.cfg.motion_file, self.body_indexes, device=self.device)
+        # Determine if this is single-motion or multi-motion training
+        if cfg.motion_files:
+            # Multi-motion training
+            from .motion_library import MotionLibrary
+            self.motion_library = MotionLibrary(
+                motion_files=cfg.motion_files,
+                body_indexes=self.body_indexes,
+                adaptive_sampling_cfg=cfg.adaptive_sampling,
+                device=self.device
+            )
+            self.is_multi_motion = True
+            print(f"Multi-motion training initialized with {self.motion_library.num_motions} motions")
+        else:
+            # Single-motion training (backward compatibility)
+            self.motion = MotionLoader(self.cfg.motion_file, self.body_indexes, device=self.device)
+            motion_duration = self.motion.time_step_total / self.motion.fps
+            self.adaptive_sampler = AdaptiveSampler(
+                motion_fps=int(self.motion.fps),
+                motion_duration=motion_duration,
+                bin_size_seconds=cfg.adaptive_sampling.bin_size_seconds,
+                gamma=cfg.adaptive_sampling.gamma,
+                lambda_uniform=cfg.adaptive_sampling.lambda_uniform,
+                K=cfg.adaptive_sampling.K,
+                alpha_smooth=cfg.adaptive_sampling.alpha_smooth,
+                device=self.device
+            )
+            self.is_multi_motion = False
+            print("Single-motion training initialized")
+
         self.time_steps = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.body_pos_relative_w = torch.zeros(self.num_envs, len(cfg.body_names), 3, device=self.device)
         self.body_quat_relative_w = torch.zeros(self.num_envs, len(cfg.body_names), 4, device=self.device)
         self.body_quat_relative_w[:, :, 0] = 1.0
         
-        # Initialize adaptive sampler
-        motion_duration = self.motion.time_step_total / self.motion.fps
-        self.adaptive_sampler = AdaptiveSampler(
-            motion_fps=int(self.motion.fps),
-            motion_duration=motion_duration,
-            bin_size_seconds=cfg.adaptive_sampling.bin_size_seconds,
-            gamma=cfg.adaptive_sampling.gamma,
-            lambda_uniform=cfg.adaptive_sampling.lambda_uniform,
-            K=cfg.adaptive_sampling.K,
-            alpha_smooth=cfg.adaptive_sampling.alpha_smooth,
-            device=self.device
-        )
-        
-        # Track starting bins for episodes (needed for failure tracking)
+        # Track starting frames and motion assignments for episodes
         self.episode_starting_frames = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        
+        if self.is_multi_motion:
+            # Track which motion each environment is assigned to
+            self.motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        else:
+            # For single-motion, all environments use motion 0
+            self.motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
 
         self.metrics["error_anchor_pos"] = torch.zeros(self.num_envs, device=self.device)
         self.metrics["error_anchor_rot"] = torch.zeros(self.num_envs, device=self.device)
@@ -109,43 +131,78 @@ class MotionCommand(CommandTerm):
 
     @property
     def joint_pos(self) -> torch.Tensor:
-        return self.motion.joint_pos[self.time_steps]
+        if self.is_multi_motion:
+            return self.motion_library.get_motion_data(self.motion_ids, self.time_steps, 'joint_pos')
+        else:
+            return self.motion.joint_pos[self.time_steps]
 
     @property
     def joint_vel(self) -> torch.Tensor:
-        return self.motion.joint_vel[self.time_steps]
+        if self.is_multi_motion:
+            return self.motion_library.get_motion_data(self.motion_ids, self.time_steps, 'joint_vel')
+        else:
+            return self.motion.joint_vel[self.time_steps]
 
     @property
     def body_pos_w(self) -> torch.Tensor:
-        return self.motion.body_pos_w[self.time_steps] + self._env.scene.env_origins[:, None, :]
+        if self.is_multi_motion:
+            body_pos = self.motion_library.get_motion_data(self.motion_ids, self.time_steps, 'body_pos_w')
+            return body_pos + self._env.scene.env_origins[:, None, :]
+        else:
+            return self.motion.body_pos_w[self.time_steps] + self._env.scene.env_origins[:, None, :]
 
     @property
     def body_quat_w(self) -> torch.Tensor:
-        return self.motion.body_quat_w[self.time_steps]
+        if self.is_multi_motion:
+            return self.motion_library.get_motion_data(self.motion_ids, self.time_steps, 'body_quat_w')
+        else:
+            return self.motion.body_quat_w[self.time_steps]
 
     @property
     def body_lin_vel_w(self) -> torch.Tensor:
-        return self.motion.body_lin_vel_w[self.time_steps]
+        if self.is_multi_motion:
+            return self.motion_library.get_motion_data(self.motion_ids, self.time_steps, 'body_lin_vel_w')
+        else:
+            return self.motion.body_lin_vel_w[self.time_steps]
 
     @property
     def body_ang_vel_w(self) -> torch.Tensor:
-        return self.motion.body_ang_vel_w[self.time_steps]
+        if self.is_multi_motion:
+            return self.motion_library.get_motion_data(self.motion_ids, self.time_steps, 'body_ang_vel_w')
+        else:
+            return self.motion.body_ang_vel_w[self.time_steps]
 
     @property
     def anchor_pos_w(self) -> torch.Tensor:
-        return self.motion.body_pos_w[self.time_steps, self.motion_anchor_body_index] + self._env.scene.env_origins
+        if self.is_multi_motion:
+            body_pos = self.motion_library.get_motion_data(self.motion_ids, self.time_steps, 'body_pos_w')
+            return body_pos[:, self.motion_anchor_body_index] + self._env.scene.env_origins
+        else:
+            return self.motion.body_pos_w[self.time_steps, self.motion_anchor_body_index] + self._env.scene.env_origins
 
     @property
     def anchor_quat_w(self) -> torch.Tensor:
-        return self.motion.body_quat_w[self.time_steps, self.motion_anchor_body_index]
+        if self.is_multi_motion:
+            body_quat = self.motion_library.get_motion_data(self.motion_ids, self.time_steps, 'body_quat_w')
+            return body_quat[:, self.motion_anchor_body_index]
+        else:
+            return self.motion.body_quat_w[self.time_steps, self.motion_anchor_body_index]
 
     @property
     def anchor_lin_vel_w(self) -> torch.Tensor:
-        return self.motion.body_lin_vel_w[self.time_steps, self.motion_anchor_body_index]
+        if self.is_multi_motion:
+            body_lin_vel = self.motion_library.get_motion_data(self.motion_ids, self.time_steps, 'body_lin_vel_w')
+            return body_lin_vel[:, self.motion_anchor_body_index]
+        else:
+            return self.motion.body_lin_vel_w[self.time_steps, self.motion_anchor_body_index]
 
     @property
     def anchor_ang_vel_w(self) -> torch.Tensor:
-        return self.motion.body_ang_vel_w[self.time_steps, self.motion_anchor_body_index]
+        if self.is_multi_motion:
+            body_ang_vel = self.motion_library.get_motion_data(self.motion_ids, self.time_steps, 'body_ang_vel_w')
+            return body_ang_vel[:, self.motion_anchor_body_index]
+        else:
+            return self.motion.body_ang_vel_w[self.time_steps, self.motion_anchor_body_index]
 
     @property
     def robot_joint_pos(self) -> torch.Tensor:
@@ -211,16 +268,47 @@ class MotionCommand(CommandTerm):
         self.metrics["error_joint_vel"] = torch.norm(self.joint_vel - self.robot_joint_vel, dim=-1)
 
     def _resample_command(self, env_ids: Sequence[int]):
-        if self.cfg.adaptive_sampling.enabled:
-            # Use adaptive sampling
-            phases, starting_bins = self.adaptive_sampler.sample_starting_phases(len(env_ids))
-            starting_frames = (phases * (self.motion.time_step_total - 1)).long()
-            self.episode_starting_frames[env_ids] = starting_frames
-            self.time_steps[env_ids] = starting_frames
+        if len(env_ids) == 0:
+            return
+            
+        if self.is_multi_motion:
+            # Multi-motion sampling
+            if self.cfg.adaptive_sampling.enabled:
+                # Sample motions and starting phases using adaptive sampling
+                motion_ids, phases, starting_bins = self.motion_library.sample_motion_and_phase(len(env_ids))
+                
+                # Convert phases to frame indices for each motion
+                starting_frames = torch.zeros_like(phases, dtype=torch.long)
+                for i, (motion_id, phase) in enumerate(zip(motion_ids, phases)):
+                    motion = self.motion_library.motions[motion_id]
+                    starting_frames[i] = (phase * (motion.time_step_total - 1)).long()
+                
+                # Update environment assignments
+                self.motion_ids[env_ids] = motion_ids
+                self.episode_starting_frames[env_ids] = starting_frames
+                self.time_steps[env_ids] = starting_frames
+            else:
+                # Uniform multi-motion sampling
+                motion_ids = torch.randint(0, self.motion_library.num_motions, (len(env_ids),), device=self.device)
+                phases = sample_uniform(0.0, 1.0, (len(env_ids),), device=self.device)
+                
+                starting_frames = torch.zeros_like(phases, dtype=torch.long)
+                for i, (motion_id, phase) in enumerate(zip(motion_ids, phases)):
+                    motion = self.motion_library.motions[motion_id]
+                    starting_frames[i] = (phase * (motion.time_step_total - 1)).long()
+                
+                self.motion_ids[env_ids] = motion_ids
+                self.episode_starting_frames[env_ids] = starting_frames
+                self.time_steps[env_ids] = starting_frames
         else:
-            # Fallback to uniform sampling
-            phases = sample_uniform(0.0, 1.0, (len(env_ids),), device=self.device)
-            starting_frames = (phases * (self.motion.time_step_total - 1)).long()
+            # Single-motion sampling (backward compatibility)
+            if self.cfg.adaptive_sampling.enabled:
+                phases, starting_bins = self.adaptive_sampler.sample_starting_phases(len(env_ids))
+                starting_frames = (phases * (self.motion.time_step_total - 1)).long()
+            else:
+                phases = sample_uniform(0.0, 1.0, (len(env_ids),), device=self.device)
+                starting_frames = (phases * (self.motion.time_step_total - 1)).long()
+            
             self.episode_starting_frames[env_ids] = starting_frames
             self.time_steps[env_ids] = starting_frames
 
@@ -257,8 +345,23 @@ class MotionCommand(CommandTerm):
 
     def _update_command(self):
         self.time_steps += 1
-        env_ids = torch.where(self.time_steps >= self.motion.time_step_total)[0]
-        self._resample_command(env_ids)
+        
+        if self.is_multi_motion:
+            # Multi-motion: check end condition per motion
+            env_ids_to_reset = []
+            for env_id in range(self.num_envs):
+                motion_id = self.motion_ids[env_id]
+                motion = self.motion_library.motions[motion_id]
+                if self.time_steps[env_id] >= motion.time_step_total:
+                    env_ids_to_reset.append(env_id)
+            
+            if env_ids_to_reset:
+                env_ids = torch.tensor(env_ids_to_reset, device=self.device, dtype=torch.long)
+                self._resample_command(env_ids)
+        else:
+            # Single-motion: original logic
+            env_ids = torch.where(self.time_steps >= self.motion.time_step_total)[0]
+            self._resample_command(env_ids)
 
         anchor_pos_w_repeat = self.anchor_pos_w[:, None, :].repeat(1, len(self.cfg.body_names), 1)
         anchor_quat_w_repeat = self.anchor_quat_w[:, None, :].repeat(1, len(self.cfg.body_names), 1)
@@ -283,19 +386,32 @@ class MotionCommand(CommandTerm):
         if not self.cfg.adaptive_sampling.enabled or len(env_ids) == 0:
             return
             
-        # Get starting frames for completed episodes
+        # Get starting frames and motion IDs for completed episodes
         starting_frames = self.episode_starting_frames[env_ids]
         
-        # Update failure statistics
-        self.adaptive_sampler.update_failure_statistics(starting_frames, failures)
-        
-        # Update sampling probabilities periodically
-        if self.adaptive_sampler.update_counter % self.cfg.adaptive_sampling.update_frequency == 0:
-            self.adaptive_sampler.update_sampling_probabilities()
-        
-        # Log to WandB periodically
-        if self.adaptive_sampler.total_episodes % self.cfg.adaptive_sampling.log_frequency == 0:
-            self.adaptive_sampler.log_to_wandb()
+        if self.is_multi_motion:
+            # Multi-motion: update motion library statistics
+            motion_ids = self.motion_ids[env_ids]
+            self.motion_library.update_failure_statistics(motion_ids, starting_frames, failures)
+            
+            # Update sampling probabilities periodically
+            if len(env_ids) > 0 and self.motion_library.motion_episode_counts.sum() % self.cfg.adaptive_sampling.update_frequency == 0:
+                self.motion_library.update_sampling_probabilities()
+            
+            # Log to WandB periodically
+            if self.motion_library.motion_episode_counts.sum() % self.cfg.adaptive_sampling.log_frequency == 0:
+                self.motion_library.log_to_wandb()
+        else:
+            # Single-motion: update adaptive sampler statistics
+            self.adaptive_sampler.update_failure_statistics(starting_frames, failures)
+            
+            # Update sampling probabilities periodically
+            if self.adaptive_sampler.update_counter % self.cfg.adaptive_sampling.update_frequency == 0:
+                self.adaptive_sampler.update_sampling_probabilities()
+            
+            # Log to WandB periodically
+            if self.adaptive_sampler.total_episodes % self.cfg.adaptive_sampling.log_frequency == 0:
+                self.adaptive_sampler.log_to_wandb()
 
     def _set_debug_vis_impl(self, debug_vis: bool):
         if debug_vis:
@@ -388,6 +504,7 @@ class MotionCommandCfg(CommandTermCfg):
     asset_name: str = MISSING
 
     motion_file: str = MISSING
+    motion_files: list[str] = []  # New: for multi-motion training
     anchor_body: str = MISSING
     body_names: list[str] = MISSING
 

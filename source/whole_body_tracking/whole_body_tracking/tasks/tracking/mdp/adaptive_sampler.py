@@ -40,7 +40,9 @@ class AdaptiveSampler:
         lambda_uniform: float = 0.1,
         K: int = 5,
         alpha_smooth: float = 0.1,
-        device: str = "cpu"
+        device: str = "cpu",
+        motion_id: int = 0,
+        motion_name: str = "unknown"
     ):
         """
         Initialize adaptive sampler.
@@ -54,6 +56,8 @@ class AdaptiveSampler:
             K: Convolution kernel size (default: 5)
             alpha_smooth: EMA smoothing factor for failure rates (default: 0.1)
             device: Device for tensor operations
+            motion_id: Unique identifier for this motion (for multi-motion training)
+            motion_name: Human-readable name for this motion
         """
         self.motion_fps = motion_fps
         self.motion_duration = motion_duration
@@ -63,6 +67,8 @@ class AdaptiveSampler:
         self.K = K
         self.alpha_smooth = alpha_smooth
         self.device = device
+        self.motion_id = motion_id
+        self.motion_name = motion_name
         
         # Calculate number of bins (S in paper)
         self.num_bins = int(np.ceil(motion_duration / bin_size_seconds))
@@ -81,7 +87,8 @@ class AdaptiveSampler:
         self.update_counter = 0
         
         print(f"AdaptiveSampler initialized:")
-        print(f"  Motion: {motion_duration:.1f}s @ {motion_fps}fps = {self.total_frames} frames")
+        print(f"  Motion: {motion_name} (ID: {motion_id})")
+        print(f"  Duration: {motion_duration:.1f}s @ {motion_fps}fps = {self.total_frames} frames")
         print(f"  Bins: {self.num_bins} bins of {bin_size_seconds}s each ({self.frames_per_bin} frames/bin)")
         print(f"  Parameters: γ={gamma}, λ={lambda_uniform}, K={K}, α={alpha_smooth}")
     
@@ -256,6 +263,8 @@ class AdaptiveSampler:
         min_prob_bin = torch.argmin(self.sampling_probabilities).item()
         
         return {
+            "motion_id": self.motion_id,
+            "motion_name": self.motion_name,
             "total_episodes": self.total_episodes,
             "total_failures": self.total_failures,
             "overall_failure_rate": overall_failure_rate,

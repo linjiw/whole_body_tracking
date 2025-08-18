@@ -1,8 +1,13 @@
-# Phase 1: Adaptive Sampling Mechanism - Detailed Implementation Plan
+# Phase 1: Adaptive Sampling + Multi-Motion Training - Updated Implementation Plan
 
 ## Executive Summary
 
-This document provides a comprehensive, low-level implementation plan for the **Adaptive Sampling Mechanism** as described in the BeyondMimic paper (Section III-F). This is the critical missing feature that enables efficient training on long, multi-motion sequences by sampling difficult motion segments more frequently based on empirical failure statistics.
+This document provides a comprehensive, updated implementation plan for completing **Phase 1** of the BeyondMimic implementation. Phase 1 consists of two critical components:
+
+1. **✅ COMPLETED: Adaptive Sampling Mechanism** - Enables efficient training on long sequences by sampling difficult segments more frequently
+2. **🚧 IN PROGRESS: Multi-Motion Training** - Enables a single policy to train on multiple diverse motions simultaneously
+
+**Current Status**: Adaptive sampling is fully implemented and validated. Multi-motion training is the remaining component needed to complete Phase 1.
 
 ## 🎯 Problem Analysis
 
@@ -376,21 +381,222 @@ dance2_subject1  | Failed          | 9k iterations     | ∞ (enables)
 
 ## 🔧 Implementation Schedule
 
-### Phase 1A: Core Implementation (Week 1)
-- [ ] Create `AdaptiveSampler` class with mathematical components
-- [ ] Implement failure tracking and probability calculation
-- [ ] Add configuration framework
+### Phase 1A: Adaptive Sampling (COMPLETED ✅)
+- [x] Create `AdaptiveSampler` class with mathematical components
+- [x] Implement failure tracking and probability calculation  
+- [x] Add configuration framework
+- [x] Modify `MotionCommand` to use adaptive sampler
+- [x] Update `MotionOnPolicyRunner` for episode tracking
+- [x] Add logging and monitoring
+- [x] Unit tests for mathematical correctness
+- [x] Integration tests and validation
 
-### Phase 1B: Integration (Week 2)  
-- [ ] Modify `MotionCommand` to use adaptive sampler
-- [ ] Update `MotionOnPolicyRunner` for episode tracking
-- [ ] Add logging and monitoring
+### Phase 1B: Multi-Motion Training (IN PROGRESS 🚧)
+- [ ] **Step 1**: Create `MotionLibrary` class to manage multiple motions
+- [ ] **Step 2**: Extend `AdaptiveSampler` to handle motion-specific statistics
+- [ ] **Step 3**: Update training script to accept multiple motion artifacts
+- [ ] **Step 4**: Add motion ID to policy observations  
+- [ ] **Step 5**: Update reset logic for multi-motion sampling
+- [ ] **Step 6**: Test multi-motion training integration
 
-### Phase 1C: Testing & Validation (Week 3)
-- [ ] Unit tests for mathematical correctness
-- [ ] Integration tests on known motions
-- [ ] Ablation study replication
-- [ ] Performance optimization
+## 🔄 Multi-Motion Training Implementation Details
+
+### Step 1: MotionLibrary Class
+
+**Location**: `whole_body_tracking/tasks/tracking/mdp/motion_library.py` (new file)
+
+**Purpose**: Manage multiple motion files and their corresponding adaptive samplers.
+
+```python
+class MotionLibrary:
+    def __init__(self, motion_files: List[str], body_indexes: Sequence[int], 
+                 adaptive_sampling_cfg: AdaptiveSamplingCfg, device: str = "cpu"):
+        self.motion_files = motion_files
+        self.num_motions = len(motion_files)
+        self.device = device
+        
+        # Load all motions
+        self.motions = []
+        self.adaptive_samplers = []
+        
+        for motion_file in motion_files:
+            motion = MotionLoader(motion_file, body_indexes, device)
+            motion_duration = motion.time_step_total / motion.fps
+            
+            sampler = AdaptiveSampler(
+                motion_fps=int(motion.fps),
+                motion_duration=motion_duration,
+                bin_size_seconds=adaptive_sampling_cfg.bin_size_seconds,
+                gamma=adaptive_sampling_cfg.gamma,
+                lambda_uniform=adaptive_sampling_cfg.lambda_uniform,
+                K=adaptive_sampling_cfg.K,
+                alpha_smooth=adaptive_sampling_cfg.alpha_smooth,
+                device=device
+            )
+            
+            self.motions.append(motion)
+            self.adaptive_samplers.append(sampler)
+    
+    def sample_motion_and_phase(self, batch_size: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sample motions and starting phases for a batch of environments."""
+        # For now, uniform sampling of motions (can be made adaptive later)
+        motion_ids = torch.randint(0, self.num_motions, (batch_size,), device=self.device)
+        
+        starting_phases = torch.zeros(batch_size, device=self.device)
+        starting_bins = torch.zeros(batch_size, dtype=torch.long, device=self.device)
+        
+        # Sample starting phase for each selected motion
+        for motion_id in range(self.num_motions):
+            mask = motion_ids == motion_id
+            if mask.any():
+                phases, bins = self.adaptive_samplers[motion_id].sample_starting_phases(mask.sum().item())
+                starting_phases[mask] = phases
+                starting_bins[mask] = bins
+        
+        return motion_ids, starting_phases, starting_bins
+```
+
+### Step 2: Multi-Motion AdaptiveSampler Extension
+
+**Modification**: Update existing `AdaptiveSampler` to optionally handle multiple motions
+
+```python
+class AdaptiveSampler:
+    def __init__(self, motion_fps, motion_duration, motion_id: int = 0, **kwargs):
+        # ... existing initialization ...
+        self.motion_id = motion_id  # For identification in multi-motion scenarios
+        
+    def get_motion_statistics(self) -> Dict:
+        """Get statistics specific to this motion."""
+        stats = self.get_statistics()
+        stats["motion_id"] = self.motion_id
+        return stats
+```
+
+### Step 3: Training Script Updates
+
+**File**: `scripts/rsl_rl/train.py`
+
+**Changes**:
+```python
+# Update argument parsing
+parser.add_argument("--registry_name", type=str, 
+                   help="Comma-separated list of motion registry names")
+
+# Update motion loading
+def load_motion_library(registry_names: str) -> List[str]:
+    motion_files = []
+    for registry_name in registry_names.split(','):
+        artifact = wandb.run.use_artifact(registry_name.strip())
+        artifact_dir = artifact.download()
+        motion_file = os.path.join(artifact_dir, "motion.npz")
+        motion_files.append(motion_file)
+    return motion_files
+
+# Update environment configuration
+motion_files = load_motion_library(args.registry_name)
+env_cfg.commands.motion.motion_files = motion_files  # New parameter
+```
+
+### Step 4: Policy Observation Updates
+
+**Files**: 
+- `mdp/observations.py` (new function)
+- `tracking_env_cfg.py` (add to observations)
+
+**New observation function**:
+```python
+def motion_id_one_hot(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
+    """Generate one-hot encoding of current motion ID."""
+    command_term = env.command_manager.get_term(command_name)
+    motion_ids = command_term.motion_ids
+    num_motions = command_term.motion_library.num_motions
+    
+    # Create one-hot encoding
+    one_hot = torch.zeros(motion_ids.shape[0], num_motions, device=motion_ids.device)
+    one_hot.scatter_(1, motion_ids.unsqueeze(1), 1)
+    
+    return one_hot
+```
+
+**Add to observation configuration**:
+```python
+# In tracking_env_cfg.py PolicyCfg
+motion_id = ObsTerm(func=mdp.motion_id_one_hot, params={"command_name": "motion"})
+```
+
+### Step 5: Updated MotionCommand Integration
+
+**File**: `mdp/commands.py`
+
+**Key changes**:
+```python
+class MotionCommandCfg(CommandTermCfg):
+    # ... existing fields ...
+    motion_files: List[str] = []  # New: list of motion files instead of single file
+    motion_file: str = MISSING  # Keep for backward compatibility
+
+class MotionCommand(CommandTerm):
+    def __init__(self, cfg: MotionCommandCfg, env: ManagerBasedRLEnv):
+        super().__init__(cfg, env)
+        
+        # Handle backward compatibility
+        if cfg.motion_files:
+            motion_files = cfg.motion_files
+        else:
+            motion_files = [cfg.motion_file]
+        
+        # Initialize motion library
+        self.motion_library = MotionLibrary(
+            motion_files=motion_files,
+            body_indexes=self.body_indexes,
+            adaptive_sampling_cfg=cfg.adaptive_sampling,
+            device=self.device
+        )
+        
+        # Track current motion assignment for each environment
+        self.motion_ids = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self.episode_starting_frames = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+    
+    def _resample_command(self, env_ids: Sequence[int]):
+        if len(env_ids) == 0:
+            return
+            
+        # Sample motions and starting phases
+        motion_ids, phases, starting_bins = self.motion_library.sample_motion_and_phase(len(env_ids))
+        
+        # Update environment assignments
+        self.motion_ids[env_ids] = motion_ids
+        
+        # Convert phases to time steps for each motion
+        starting_frames = torch.zeros_like(phases, dtype=torch.long)
+        for i, (motion_id, phase) in enumerate(zip(motion_ids, phases)):
+            motion = self.motion_library.motions[motion_id]
+            starting_frames[i] = (phase * (motion.time_step_total - 1)).long()
+        
+        self.episode_starting_frames[env_ids] = starting_frames
+        
+        # ... rest of reset logic using motion-specific data ...
+```
+
+### Step 6: Property Updates for Multi-Motion
+
+**Updates to motion data properties**:
+```python
+@property
+def joint_pos(self) -> torch.Tensor:
+    """Get joint positions for current motion assignments."""
+    result = torch.zeros(self.num_envs, self.motion_library.motions[0].joint_pos.shape[1], device=self.device)
+    
+    for motion_id in range(self.motion_library.num_motions):
+        mask = self.motion_ids == motion_id
+        if mask.any():
+            motion = self.motion_library.motions[motion_id]
+            motion_time_steps = self.episode_starting_frames[mask]  # + current time offset
+            result[mask] = motion.joint_pos[motion_time_steps]
+    
+    return result
+```
 
 ## 🚀 Expected Outcomes
 
