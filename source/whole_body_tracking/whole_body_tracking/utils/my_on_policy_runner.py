@@ -112,5 +112,15 @@ class MotionOnPolicyRunner(OnPolicyRunner):
 
             # link the artifact registry to this run
             if self.registry_name is not None:
-                wandb.run.use_artifact(self.registry_name)
+                # Handle both single and multi-motion artifact names
+                artifact_names = self.registry_name.split(',')
+                for artifact_name in artifact_names:
+                    artifact_name = artifact_name.strip()
+                    if artifact_name:  # Skip empty strings
+                        try:
+                            wandb.run.use_artifact(artifact_name)
+                            print(f"Successfully linked artifact: {artifact_name}")
+                        except Exception as e:
+                            print(f"Warning: Could not link artifact {artifact_name}: {e}")
+                            # Continue training despite artifact linking failure
                 self.registry_name = None
