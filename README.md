@@ -17,13 +17,36 @@ BeyondMimic is a versatile humanoid control framework that provides highly dynam
 state-of-the-art motion quality on real-world deployment and steerable test-time control with guided diffusion-based
 controllers.
 
-This repo covers the motion tracking training in BeyondMimic. **After adaptive sampling added, you should be able to
-train any sim-to-real-ready motion in the LAFAN1 dataset, without tuning any parameters**.
+This repository implements the motion tracking training component of BeyondMimic, featuring:
 
-TODO list:
+## ✅ Phase 1 Features (Implemented)
 
-- [ ] Adaptive Sampling: fixing some bugs from numerical issues.
-- [ ] Deployment: will be on another repo.
+### 🎯 Adaptive Sampling Mechanism (BeyondMimic Section III-F)
+- **Non-causal convolution** with exponentially decaying kernel for failure rate estimation
+- **Exponential moving average** smoothing of per-bin failure statistics  
+- **Weighted sampling** based on convolved failure rates to focus training on challenging motion phases
+- **Mathematically principled** approach following Equation 6 from the paper
+- **Zero hyperparameter tuning** - works out-of-the-box for all LAFAN1 motions
+
+### 🤖 Multi-Motion Training System
+- **Single policy** learns multiple diverse motions simultaneously
+- **Motion library management** with per-motion adaptive samplers
+- **Policy conditioning** through motion ID one-hot encoding in observations
+- **Automatic scaling** of neural networks based on motion count
+- **WandB integration** for seamless motion artifact management
+
+### 📁 Motion Set Configuration System
+- **YAML-based configurations** for elegant experiment management
+- **Category-organized motion sets** (locomotion, dynamic skills, dance, recovery)
+- **Flexible training workflows** supporting both single and multi-motion training
+- **Complete LAFAN1 dataset** integration with all 40 processed motions
+
+**Status**: After adaptive sampling implementation, you can train any sim-to-real-ready motion in the LAFAN1 dataset without tuning parameters.
+
+## 🚧 Upcoming Features
+
+- [ ] Steerable test-time control with guided diffusion-based controllers
+- [ ] Real-world deployment pipeline (separate repository)
 
 ## Installation
 
@@ -109,17 +132,57 @@ python scripts/replay_npz.py --registry_name=16726/csv_to_npz/dance1_subject1:la
 
 ### Policy Training
 
-- Train policy by the following command:
+#### Motion Set Approach (Recommended)
+
+Use pre-configured motion sets for elegant experiment management:
 
 ```bash
+# Basic locomotion training (12 motions: walking, running, sprinting)
 python scripts/rsl_rl/train.py --task=Tracking-Flat-G1-v0 \
---registry_name 16726-org/wandb-registry-Motions/{motion_name} \
---headless --logger wandb --log_project_name tracking_training --run_name {motion_name}_tracking
+--motion_set locomotion_basic --headless --logger wandb \
+--log_project_name tracking_training --run_name locomotion_basic_training
 
-# Example with walk3_subject2 motion
+# Dynamic skills training (15 motions: dance, jumps, fights, recovery)
 python scripts/rsl_rl/train.py --task=Tracking-Flat-G1-v0 \
---registry_name 16726-org/wandb-registry-Motions/walk3_subject2 \
+--motion_set dynamic_skills --headless --logger wandb \
+--log_project_name tracking_training --run_name dynamic_skills_training
+
+# Complete LAFAN1 dataset (40 motions: all categories)
+python scripts/rsl_rl/train.py --task=Tracking-Flat-G1-v0 \
+--motion_set lafan1_full --headless --logger wandb \
+--log_project_name tracking_training --run_name lafan1_full_training
+
+# Single motion training
+python scripts/rsl_rl/train.py --task=Tracking-Flat-G1-v0 \
+--motion_set single_motion_test --headless --logger wandb \
+--log_project_name tracking_training --run_name single_motion_training
+```
+
+**Available Motion Sets:**
+- `locomotion_basic` - Walking, running, sprinting (12 motions)
+- `dynamic_skills` - Dance, jumps, fights, recovery (15 motions)  
+- `walking_only` - All walking variations (12 motions)
+- `dance_performance` - All dance motions (8 motions)
+- `recovery_training` - Fall and recovery motions (6 motions)
+- `lafan1_full` - Complete dataset (40 motions)
+- `single_motion_test` - Single motion testing (1 motion)
+
+See `configs/motion_sets/README.md` for complete documentation.
+
+#### Direct Registry Approach (Legacy)
+
+Train with specific motion registry names:
+
+```bash
+# Single motion training
+python scripts/rsl_rl/train.py --task=Tracking-Flat-G1-v0 \
+--registry_name "16726/csv_to_npz/walk3_subject2:latest" \
 --headless --logger wandb --log_project_name tracking_training --run_name walk3_subject2_tracking
+
+# Multi-motion training
+python scripts/rsl_rl/train.py --task=Tracking-Flat-G1-v0 \
+--registry_name "16726/csv_to_npz/dance1_subject1:latest,16726/csv_to_npz/walk1_subject1:latest" \
+--headless --logger wandb --log_project_name tracking_training --run_name multi_motion_training
 ```
 
 ### Policy Evaluation
@@ -140,12 +203,20 @@ The WandB run path can be located in the run overview. It follows the format `16
 Below is an overview of the code structure for this repository:
 
 - **`source/whole_body_tracking/whole_body_tracking/tasks/tracking/mdp`**
-  This directory contains the atomic functions to define the MDP for BeyondMimic. Below is a breakdown of the functions:
+  This directory contains the atomic functions to define the MDP for BeyondMimic:
 
     - **`commands.py`**
       Command library to compute relevant variables from the reference motion, current robot state, and error
-      computations. This includes pose and velocity error calculation, initial state randomization, and adaptive
-      sampling.
+      computations. Includes pose and velocity error calculation, initial state randomization, and **multi-motion training support**.
+
+    - **`adaptive_sampler.py`** ⭐ **[NEW - Phase 1]**
+      Implements the **adaptive sampling mechanism** from BeyondMimic Section III-F. Features non-causal convolution
+      with exponentially decaying kernel, exponential moving average failure rate smoothing, and weighted sampling
+      based on convolved failure rates following Equation 6 from the paper.
+
+    - **`motion_library.py`** ⭐ **[NEW - Phase 1]**  
+      **Multi-motion training system** that manages multiple motion files and their corresponding adaptive samplers.
+      Enables single policy learning across diverse motions with automatic motion ID encoding and sampling coordination.
 
     - **`rewards.py`**
       Implements the DeepMimic reward functions and smoothing terms.
@@ -154,7 +225,7 @@ Below is an overview of the code structure for this repository:
       Implements domain randomization terms.
 
     - **`observations.py`**
-      Implements observation terms for motion tracking and data collection.
+      Implements observation terms for motion tracking and data collection. **Extended with motion ID encoding** for multi-motion training.
 
     - **`terminations.py`**
       Implements early terminations and timeouts.
@@ -169,7 +240,43 @@ Below is an overview of the code structure for this repository:
   Contains robot-specific settings, including armature parameters, joint stiffness/damping calculation, and action scale
   calculation.
 
+- **`configs/motion_sets/`** ⭐ **[NEW - Phase 1]**
+  **Motion set configuration system** with YAML-based motion set definitions for elegant experiment management.
+  Includes category-organized sets for locomotion, dynamic skills, dance, recovery, and complete dataset training.
+  See `configs/motion_sets/README.md` for comprehensive documentation.
+
 - **`scripts`**
   Includes utility scripts for preprocessing motion data, training policies, and evaluating trained policies.
+  **Enhanced training script** now supports both motion set configurations and direct registry access.
 
 This structure is designed to ensure modularity and ease of navigation for developers expanding the project.
+
+## Implementation Details & Paper Correspondence
+
+### Adaptive Sampling (BeyondMimic Section III-F)
+
+Our implementation directly follows the mathematical formulation from the paper:
+
+**Equation 6**: Convolved failure rate computation
+```
+f̃ₛ = (1/Zₛ) Σᵤ₌₀^{K-1} γᵘ · fₛ₊ᵤ
+```
+
+**Key Implementation Features:**
+- **Non-causal convolution** with exponentially decaying kernel (γ=0.9)
+- **Exponential moving average** for failure rate smoothing (λ=0.1) 
+- **Bin-based tracking** with temporal locality (K=5 lookahead)
+- **Weighted sampling** using softmax temperature (α=0.1)
+
+The adaptive sampler automatically identifies challenging motion phases and increases sampling frequency, eliminating the need for manual curriculum design or hyperparameter tuning across different motion types.
+
+### Multi-Motion Training
+
+Extends the single-motion framework to support simultaneous learning of diverse behaviors:
+
+- **Policy conditioning** through motion ID one-hot encoding in observations
+- **Per-motion adaptive sampling** maintaining individual failure statistics
+- **Automatic scaling** of neural network input dimensions based on motion count
+- **Motion library management** with seamless WandB integration
+
+This enables training versatile policies that can perform complex behavior switching and generalization across motion categories.
