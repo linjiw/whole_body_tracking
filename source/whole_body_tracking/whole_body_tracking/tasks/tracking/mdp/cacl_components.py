@@ -8,7 +8,7 @@ This module provides core components for CACL:
 
 import torch
 import torch.nn as nn
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 
 class CompetenceAssessor(nn.Module):
@@ -119,8 +119,9 @@ class CompetenceAssessor(nn.Module):
         Returns:
             Training loss value
         """
-        # Forward pass with gradients
-        predicted_competence = self.assess(history)
+        # Forward pass with gradients (don't use assess which has @torch.no_grad)
+        features = self._extract_features(history)
+        predicted_competence = self.network(features).squeeze(-1)
         
         # Loss: MSE between predicted competence and actual future performance
         loss = nn.functional.mse_loss(predicted_competence, future_performance)
@@ -142,8 +143,8 @@ class DifficultyEstimator:
     
     def __init__(self, 
                  motion_loader,
-                 feature_list: list[str] = None,
-                 device: str = "cuda"):
+                 feature_list: Optional[List[str]] = None,
+                 device: str = "cpu"):
         """Initialize difficulty estimator.
         
         Args:

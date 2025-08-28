@@ -25,7 +25,7 @@ class PhysicsInformedDifficultyEstimator:
     def __init__(self, 
                  motion_loader,
                  robot_params: Optional[Dict] = None,
-                 device: str = "cuda"):
+                 device: str = "cpu"):
         """
         Args:
             motion_loader: MotionLoader instance with motion data
@@ -84,7 +84,10 @@ class PhysicsInformedDifficultyEstimator:
         for i in range(n_frames):
             # Get current state
             body_pos = self.motion_loader.body_pos_w[i]  # [n_bodies, 3]
-            body_vel = self.motion_loader.body_lin_vel_w[i] if hasattr(self.motion_loader, 'body_lin_vel_w') else torch.zeros_like(body_pos)
+            if hasattr(self.motion_loader, 'body_lin_vel_w') and i < len(self.motion_loader.body_lin_vel_w):
+                body_vel = self.motion_loader.body_lin_vel_w[i]
+            else:
+                body_vel = torch.zeros_like(body_pos)
             
             # 1. CoM height variation (normalized by nominal height)
             com_height = body_pos[0, 2]  # Assuming first body is pelvis/root
@@ -94,7 +97,7 @@ class PhysicsInformedDifficultyEstimator:
             com_vel_horizontal = torch.norm(body_vel[0, :2])
             
             # 3. Angular momentum (simplified - using body angular velocities)
-            if hasattr(self.motion_loader, 'body_ang_vel_w'):
+            if hasattr(self.motion_loader, 'body_ang_vel_w') and i < len(self.motion_loader.body_ang_vel_w):
                 angular_momentum = torch.norm(self.motion_loader.body_ang_vel_w[i].mean(dim=0))
             else:
                 angular_momentum = torch.tensor(0.0)
@@ -110,7 +113,12 @@ class PhysicsInformedDifficultyEstimator:
             
             # 5. ZMP margin estimate (simplified)
             # Real ZMP requires ground reaction forces, we approximate
-            com_acc = torch.zeros(3) if i == 0 else (body_vel[0] - self.motion_loader.body_lin_vel_w[i-1][0]) / self.dt
+            if i == 0:
+                com_acc = torch.zeros(3)
+            elif hasattr(self.motion_loader, 'body_lin_vel_w') and i-1 < len(self.motion_loader.body_lin_vel_w):
+                com_acc = (body_vel[0] - self.motion_loader.body_lin_vel_w[i-1][0]) / self.dt
+            else:
+                com_acc = torch.zeros(3)
             zmp_offset = torch.norm(com_acc[:2]) / self.robot_params['gravity']  # Normalized
             
             balance_features.append(torch.stack([
@@ -134,15 +142,18 @@ class PhysicsInformedDifficultyEstimator:
         
         for i in range(n_frames):
             body_pos = self.motion_loader.body_pos_w[i]
-            body_vel = self.motion_loader.body_lin_vel_w[i] if hasattr(self.motion_loader, 'body_lin_vel_w') else torch.zeros_like(body_pos)
+            if hasattr(self.motion_loader, 'body_lin_vel_w') and i < len(self.motion_loader.body_lin_vel_w):
+                body_vel = self.motion_loader.body_lin_vel_w[i]
+            else:
+                body_vel = torch.zeros_like(body_pos)
             
             # 1. Vertical velocity (potential aerial phase)
             vertical_vel = body_vel[0, 2]
             aerial_indicator = torch.sigmoid((vertical_vel - 0.5) * 10)  # Smooth indicator
             
             # 2. Vertical acceleration (impact forces)
-            if i > 0:
-                prev_vel = self.motion_loader.body_lin_vel_w[i-1][0, 2] if hasattr(self.motion_loader, 'body_lin_vel_w') else 0
+            if i > 0 and hasattr(self.motion_loader, 'body_lin_vel_w') and i-1 < len(self.motion_loader.body_lin_vel_w):
+                prev_vel = self.motion_loader.body_lin_vel_w[i-1][0, 2]
                 vertical_acc = abs(vertical_vel - prev_vel) / self.dt
                 impact_force = vertical_acc / (self.robot_params['gravity'] * 2)  # Normalized
             else:
@@ -159,12 +170,19 @@ class PhysicsInformedDifficultyEstimator:
             
             # 4. Estimated ground reaction force requirement
             # F = m(g + a)
-            total_acc = torch.norm(body_vel[0] - (self.motion_loader.body_lin_vel_w[i-1][0] if i > 0 else body_vel[0])) / self.dt
+            if i > 0 and hasattr(self.motion_loader, 'body_lin_vel_w') and i-1 < len(self.motion_loader.body_lin_vel_w):
+                prev_body_vel = self.motion_loader.body_lin_vel_w[i-1][0]
+            else:
+                prev_body_vel = body_vel[0]
+            total_acc = torch.norm(body_vel[0] - prev_body_vel) / self.dt
             grf_normalized = (self.robot_params['gravity'] + total_acc) / self.robot_params['gravity']
             
             # 5. Dynamic motion indicator (high jerk = dynamic contact changes)
-            if i > 1:
-                jerk = torch.norm(body_vel[0] - 2 * self.motion_loader.body_lin_vel_w[i-1][0] + self.motion_loader.body_lin_vel_w[i-2][0]) / (self.dt ** 2)
+            if (i > 1 and hasattr(self.motion_loader, 'body_lin_vel_w') and 
+                i-1 < len(self.motion_loader.body_lin_vel_w) and i-2 < len(self.motion_loader.body_lin_vel_w)):
+                prev_vel = self.motion_loader.body_lin_vel_w[i-1][0]
+                prev_prev_vel = self.motion_loader.body_lin_vel_w[i-2][0]
+                jerk = torch.norm(body_vel[0] - 2 * prev_vel + prev_prev_vel) / (self.dt ** 2)
                 dynamic_indicator = jerk / 100.0  # Normalize
             else:
                 dynamic_indicator = torch.tensor(0.0)
@@ -397,8 +415,18 @@ class PhysicsInformedDifficultyEstimator:
             # Pad for convolution
             padded = torch.nn.functional.pad(overall_difficulty.unsqueeze(0).unsqueeze(0), 
                                             (window_size//2, window_size//2), mode='reflect')
-            smoothed = torch.nn.functional.conv1d(padded, kernel.unsqueeze(0).unsqueeze(0))
-            overall_difficulty = 0.7 * overall_difficulty + 0.3 * smoothed.squeeze()
+            smoothed = torch.nn.functional.conv1d(padded, kernel.unsqueeze(0).unsqueeze(0)).squeeze()
+            
+            # Ensure same length after convolution
+            if len(smoothed) != len(overall_difficulty):
+                # Trim or pad to match original length
+                if len(smoothed) > len(overall_difficulty):
+                    smoothed = smoothed[:len(overall_difficulty)]
+                else:
+                    # This shouldn't happen with proper padding, but handle just in case
+                    smoothed = torch.nn.functional.pad(smoothed, (0, len(overall_difficulty) - len(smoothed)))
+            
+            overall_difficulty = 0.7 * overall_difficulty + 0.3 * smoothed
         
         # Final normalization to [0, 1]
         overall_difficulty = (overall_difficulty - overall_difficulty.min()) / (overall_difficulty.max() - overall_difficulty.min() + 1e-6)
