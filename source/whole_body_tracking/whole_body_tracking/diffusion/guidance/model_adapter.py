@@ -176,3 +176,11 @@ class DiffusionModelAdapter:
         trajectory = torch.cat([states, actions], dim=-1)
         
         return trajectory
+    
+    def extract_states_from_trajectory(self, trajectory: torch.Tensor) -> torch.Tensor:
+        """Extract states from combined trajectory."""
+        return trajectory[:, :, :self.state_dim]
+    
+    def extract_actions_from_trajectory(self, trajectory: torch.Tensor) -> torch.Tensor:
+        """Extract actions from combined trajectory."""
+        return trajectory[:, :, self.state_dim:self.state_dim + self.action_dim]

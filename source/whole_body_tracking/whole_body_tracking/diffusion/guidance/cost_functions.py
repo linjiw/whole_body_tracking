@@ -9,6 +9,12 @@ from abc import ABC, abstractmethod
 class CostFunction(ABC):
     """Base class for differentiable cost functions."""
     
+    def __init__(self, model_adapter=None):
+        """Initialize with optional model adapter for dimension info."""
+        self.model_adapter = model_adapter
+        self.state_dim = model_adapter.state_dim if model_adapter else 48
+        self.action_dim = model_adapter.action_dim if model_adapter else 19
+    
     @abstractmethod
     def __call__(self, trajectory: torch.Tensor) -> torch.Tensor:
         """
@@ -25,54 +31,56 @@ class CostFunction(ABC):
     def extract_states(
         self, 
         trajectory: torch.Tensor,
-        state_dim: int = 48,
+        state_dim: int = None,
     ) -> torch.Tensor:
         """
         Extract state sequence from trajectory.
         
         Args:
             trajectory: Full trajectory [batch_size, horizon, state_dim + action_dim]
-            state_dim: Dimension of state representation
+            state_dim: Dimension of state representation (uses self.state_dim if None)
             
         Returns:
             States [batch_size, horizon, state_dim]
         """
-        # States and actions are interleaved: [a_t, s_{t+1}, a_{t+1}, s_{t+2}, ...]
-        states = []
-        for i in range(1, trajectory.shape[1], 2):  # Start from index 1 (first state)
-            if i < trajectory.shape[1]:
-                states.append(trajectory[:, i, :state_dim])
+        if state_dim is None:
+            state_dim = self.state_dim
         
-        if states:
-            return torch.stack(states, dim=1)
-        return trajectory[:, ::2, :state_dim]  # Fallback
+        # If we have a model adapter, use its extraction method
+        if self.model_adapter and hasattr(self.model_adapter, 'extract_states_from_trajectory'):
+            return self.model_adapter.extract_states_from_trajectory(trajectory)
+        
+        # Otherwise use default extraction
+        return trajectory[:, :, :state_dim]
     
     def extract_actions(
         self,
         trajectory: torch.Tensor,
-        state_dim: int = 48,
-        action_dim: int = 19,
+        state_dim: int = None,
+        action_dim: int = None,
     ) -> torch.Tensor:
         """
         Extract action sequence from trajectory.
         
         Args:
             trajectory: Full trajectory [batch_size, horizon, state_dim + action_dim]
-            state_dim: Dimension of state representation
-            action_dim: Dimension of action space
+            state_dim: Dimension of state representation (uses self.state_dim if None)
+            action_dim: Dimension of action space (uses self.action_dim if None)
             
         Returns:
             Actions [batch_size, horizon, action_dim]
         """
-        # Actions are at even indices
-        actions = []
-        for i in range(0, trajectory.shape[1], 2):
-            if i < trajectory.shape[1]:
-                actions.append(trajectory[:, i, state_dim:state_dim + action_dim])
+        if state_dim is None:
+            state_dim = self.state_dim
+        if action_dim is None:
+            action_dim = self.action_dim
         
-        if actions:
-            return torch.stack(actions, dim=1)
-        return trajectory[:, 1::2, state_dim:]  # Fallback
+        # If we have a model adapter, use its extraction method
+        if self.model_adapter and hasattr(self.model_adapter, 'extract_actions_from_trajectory'):
+            return self.model_adapter.extract_actions_from_trajectory(trajectory)
+        
+        # Otherwise use default extraction
+        return trajectory[:, :, state_dim:state_dim + action_dim]
 
 
 class JoystickCost(CostFunction):
@@ -88,6 +96,7 @@ class JoystickCost(CostFunction):
         goal_velocity: torch.Tensor,
         velocity_weight: float = 1.0,
         acceleration_penalty: float = 0.1,
+        model_adapter=None,
     ):
         """
         Initialize joystick cost.
@@ -97,6 +106,7 @@ class JoystickCost(CostFunction):
             velocity_weight: Weight for velocity tracking
             acceleration_penalty: Penalty for acceleration changes
         """
+        super().__init__(model_adapter)
         self.goal_velocity = goal_velocity
         self.velocity_weight = velocity_weight
         self.acceleration_penalty = acceleration_penalty
@@ -160,6 +170,7 @@ class WaypointCost(CostFunction):
         position_weight_near: float = 10.0,
         velocity_weight_far: float = 0.1,
         velocity_weight_near: float = 1.0,
+        model_adapter=None,
     ):
         """
         Initialize waypoint cost.
@@ -172,6 +183,7 @@ class WaypointCost(CostFunction):
             velocity_weight_far: Velocity weight when far (encourage movement)
             velocity_weight_near: Velocity weight when near (encourage stopping)
         """
+        super().__init__(model_adapter)
         self.goal_position = goal_position
         self.distance_threshold = distance_threshold
         self.position_weight_far = position_weight_far
@@ -254,6 +266,7 @@ class ObstacleAvoidanceCost(CostFunction):
         safety_margin: float = 0.1,
         barrier_weight: float = 10.0,
         barrier_delta: float = 0.05,
+        model_adapter=None,
     ):
         """
         Initialize obstacle avoidance cost.
@@ -264,6 +277,7 @@ class ObstacleAvoidanceCost(CostFunction):
             barrier_weight: Weight for barrier function
             barrier_delta: Relaxation parameter for barrier function
         """
+        super().__init__(model_adapter)
         self.sdf_function = sdf_function
         self.safety_margin = safety_margin
         self.barrier_weight = barrier_weight
@@ -341,13 +355,14 @@ class CompositeCost(CostFunction):
     Useful for multi-objective tasks like "navigate to waypoint while avoiding obstacles".
     """
     
-    def __init__(self, cost_functions: dict):
+    def __init__(self, cost_functions: dict, model_adapter=None):
         """
         Initialize composite cost.
         
         Args:
             cost_functions: Dictionary of {name: (cost_fn, weight)}
         """
+        super().__init__(model_adapter)
         self.cost_functions = cost_functions
     
     def __call__(self, trajectory: torch.Tensor) -> torch.Tensor:
