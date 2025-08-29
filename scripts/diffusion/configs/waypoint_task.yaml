@@ -1,0 +1,24 @@
+# Configuration for waypoint navigation task
+
+# Guidance parameters
+guidance_scale: 1.5
+gradient_clipping: 10.0
+warmup_steps: 5
+cooldown_steps: 3
+
+# Rolling inference parameters
+horizon: 16
+replan_frequency: 2
+warm_start_steps: 8
+temporal_smoothing: 0.85
+
+# Task configuration
+tasks:
+  - type: waypoint
+    position: [2.0, 1.0, 0.0]  # Goal position (m)
+    distance_threshold: 0.5
+    position_weight_far: 1.0
+    position_weight_near: 10.0
+    velocity_weight_far: 0.1
+    velocity_weight_near: 1.0
+    weight: 1.0

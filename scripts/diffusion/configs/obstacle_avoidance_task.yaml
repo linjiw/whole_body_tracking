@@ -1,0 +1,49 @@
+# Configuration for obstacle avoidance with waypoint navigation
+
+# Guidance parameters
+guidance_scale: 2.0
+gradient_clipping: 10.0
+warmup_steps: 5
+cooldown_steps: 3
+
+# Rolling inference parameters
+horizon: 16
+replan_frequency: 1
+warm_start_steps: 8
+temporal_smoothing: 0.9
+
+# Obstacle configuration
+obstacles:
+  - type: sphere
+    position: [1.0, 0.0, 0.5]
+    radius: 0.3
+  
+  - type: box
+    position: [-1.0, 1.0, 0.5]
+    half_extents: [0.2, 0.3, 0.4]
+  
+  - type: cylinder
+    position: [0.0, 2.0, 0.0]
+    radius: 0.25
+    height: 1.0
+
+# Optional SDF grid acceleration
+bounds: [[-3.0, -3.0, 0.0], [3.0, 3.0, 2.0]]
+resolution: 64
+
+# Task configuration - composed waypoint + obstacle avoidance
+tasks:
+  - type: waypoint
+    position: [2.0, 2.0, 0.0]
+    distance_threshold: 0.5
+    position_weight_far: 1.0
+    position_weight_near: 10.0
+    velocity_weight_far: 0.1
+    velocity_weight_near: 1.0
+    weight: 1.0
+  
+  - type: obstacle
+    safety_margin: 0.1
+    barrier_weight: 10.0
+    barrier_delta: 0.05
+    weight: 0.5
