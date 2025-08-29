@@ -1,0 +1,30 @@
+# Large configuration for best quality
+
+# Inherit from base config
+defaults:
+  - base_config
+
+# Override for larger model
+model:
+  hidden_dim: 768
+  num_layers: 8
+  num_heads: 12
+  num_timesteps: 200
+
+# Override for longer training
+training:
+  batch_size: 512
+  learning_rate: 5.0e-5
+  num_epochs: 2000
+  warmup_steps: 5000
+  
+# Enable advanced features
+training:
+  mixed_precision: true
+  compile_model: true
+
+# More frequent validation
+validation:
+  val_interval: 500
+  early_stopping: true
+  early_stopping_patience: 20

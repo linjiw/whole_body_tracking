@@ -1,0 +1,30 @@
+# Small configuration for quick testing and debugging
+
+# Inherit from base config
+defaults:
+  - base_config
+
+# Override for smaller model
+model:
+  hidden_dim: 256
+  num_layers: 3
+  num_heads: 4
+  num_timesteps: 50
+
+# Override for faster training
+training:
+  batch_size: 32
+  learning_rate: 1.0e-3
+  num_epochs: 100
+  warmup_steps: 100
+
+# Adjust intervals for debugging
+logging:
+  log_interval: 10
+  sample_interval: 500
+
+checkpoint:
+  save_interval: 500
+
+validation:
+  val_interval: 100

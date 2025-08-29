@@ -52,7 +52,10 @@ class DDPMTrainer:
         save_interval: int = 5000,
         use_wandb: bool = True,
         wandb_project: str = "beyondmimic-stage2",
-        device: str = "cuda"
+        device: str = "cuda",
+        early_stopping: bool = False,
+        early_stopping_patience: int = 10,
+        early_stopping_min_delta: float = 1e-4
     ):
         """Initialize trainer.
         
@@ -73,6 +76,9 @@ class DDPMTrainer:
             use_wandb: Whether to use WandB logging
             wandb_project: WandB project name
             device: Device to train on
+            early_stopping: Whether to enable early stopping
+            early_stopping_patience: Number of validation steps without improvement
+            early_stopping_min_delta: Minimum change to consider as improvement
         """
         self.model = model.to(device)
         self.device = device
@@ -141,6 +147,15 @@ class DDPMTrainer:
         self.global_step = 0
         self.epoch = 0
         self.best_val_loss = float('inf')
+        
+        # Metric tracking
+        from .metrics import MetricTracker
+        self.metric_tracker = MetricTracker(window_size=100)
+        
+        # Early stopping settings
+        self.early_stopping_enabled = early_stopping
+        self.early_stopping_patience = early_stopping_patience
+        self.early_stopping_min_delta = early_stopping_min_delta
     
     def _create_scheduler(self, warmup_steps: int, total_steps: int):
         """Create learning rate scheduler with warmup."""
@@ -237,6 +252,25 @@ class DDPMTrainer:
             if self.val_loader and self.global_step % self.val_interval == 0:
                 val_metrics = self.validate()
                 self._log_metrics({f'val/{k}': v for k, v in val_metrics.items()})
+                
+                # Update metric tracker
+                self.metric_tracker.update(val_metrics)
+                
+                # Check for early stopping (optional)
+                if self.early_stopping_enabled:
+                    if not self.metric_tracker.is_improving(
+                        'loss', 
+                        patience=self.early_stopping_patience,
+                        min_delta=self.early_stopping_min_delta
+                    ):
+                        print("Early stopping triggered - validation loss not improving")
+                        return {
+                            'loss': sum(epoch_losses) / len(epoch_losses),
+                            'state_loss': sum(epoch_state_losses) / len(epoch_state_losses),
+                            'action_loss': sum(epoch_action_losses) / len(epoch_action_losses),
+                            'early_stopped': True
+                        }
+                
                 self.model.train()
             
             # Checkpointing
@@ -253,7 +287,7 @@ class DDPMTrainer:
     
     @torch.no_grad()
     def validate(self) -> Dict[str, float]:
-        """Run validation.
+        """Run validation with comprehensive metrics.
         
         Returns:
             Dictionary of validation metrics
@@ -261,33 +295,91 @@ class DDPMTrainer:
         if not self.val_loader:
             return {}
         
+        # Import metrics here to avoid circular dependency
+        from .metrics import DiffusionMetrics, MetricTracker
+        
+        # Initialize metrics calculator
+        metrics_calc = DiffusionMetrics(
+            state_dim=self.model.state_dim,
+            action_dim=self.model.action_dim
+        )
+        
         self.model.eval()
         val_losses = []
         val_state_losses = []
         val_action_losses = []
+        all_metrics = []
         
         for batch in tqdm(self.val_loader, desc="Validation"):
             batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
                     for k, v in batch.items()}
             
+            # Get loss
             loss, loss_components = self.model.training_step(batch, return_loss_components=True)
             
             val_losses.append(loss.item())
             val_state_losses.append(loss_components['state_loss'])
             val_action_losses.append(loss_components['action_loss'])
+            
+            # Sample predictions for metrics computation
+            # Note: We need to generate predictions to compute quality metrics
+            t = torch.randint(0, self.model.num_timesteps, (batch['future_states'].shape[0],), device=self.device)
+            
+            # Get noisy inputs
+            state_noise = torch.randn_like(batch['future_states'])
+            action_noise = torch.randn_like(batch['future_actions'])
+            
+            noisy_states = self.model.state_noise_schedule.q_sample(
+                batch['future_states'], t, state_noise
+            )
+            noisy_actions = self.model.action_noise_schedule.q_sample(
+                batch['future_actions'], t, action_noise
+            )
+            
+            # Predict clean trajectory
+            pred_states, pred_actions = self.model(
+                noisy_states, noisy_actions,
+                batch['history_states'], batch['history_actions'],
+                t
+            )
+            
+            # Compute comprehensive metrics
+            batch_metrics = metrics_calc.compute_all_metrics(
+                pred_states=pred_states,
+                pred_actions=pred_actions,
+                target_states=batch['future_states'],
+                target_actions=batch['future_actions'],
+                loss=loss.item(),
+                state_loss=loss_components['state_loss'],
+                action_loss=loss_components['action_loss']
+            )
+            
+            all_metrics.append(batch_metrics)
         
+        # Aggregate metrics
         val_loss = sum(val_losses) / len(val_losses)
         
-        # Update best model
-        if val_loss < self.best_val_loss:
-            self.best_val_loss = val_loss
-            self.save_checkpoint(is_best=True)
-        
-        return {
+        # Average all metrics across batches
+        aggregated_metrics = {
             'loss': val_loss,
             'state_loss': sum(val_state_losses) / len(val_state_losses),
             'action_loss': sum(val_action_losses) / len(val_action_losses)
         }
+        
+        # Add detailed metrics
+        if all_metrics:
+            metric_keys = all_metrics[0].to_dict().keys()
+            for key in metric_keys:
+                if key not in aggregated_metrics:
+                    values = [m.to_dict()[key] for m in all_metrics]
+                    aggregated_metrics[key] = sum(values) / len(values)
+        
+        # Update best model based on primary metric
+        if val_loss < self.best_val_loss:
+            self.best_val_loss = val_loss
+            self.save_checkpoint(is_best=True)
+        
+        return aggregated_metrics
     
     def train(self):
         """Main training loop."""
