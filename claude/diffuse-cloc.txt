@@ -1,0 +1,1119 @@
+Diffuse-CLoC: Guided Diffusion for Physics-based Character Look-ahead
+Control
+XIAOYU HUANG∗
+, University of California, Berkeley, USA and RAI Institute, USA
+TAKARA TRUONG∗†
+, Stanford University, USA and RAI Institute, USA
+YUNBO ZHANG, RAI Institute, USA
+FANGZHOU YU, RAI Institute, USA
+JEAN PIERRE SLEIMAN, RAI Institute, USA
+JESSICA HODGINS, RAI Institute, USA
+KOUSHIL SREENATH, University of California, Berkeley, USA and RAI Institute, USA
+FARBOD FARSHIDIAN, RAI Institute, USA
+Parkour Task Motion In-Betweening
+Gamepad Steering Obstacle Avoidance
+Fig. 1. Diffuse-CLoC, demonstrates impressive versatility across a wide range of unseen physics-based tasks using the same pre-trained diffusion model
+without the need for retraining or finetuning. These tasks include static and dynamic obstacle navigation with 16 characters, agile motion obstacle avoidance,
+gamepad control guided by a classifier, and physics-based motion inbetweening through inpainting.
+∗
+Joint First Authors.
+†Corresponding Author.
+Authors’ addresses: Xiaoyu Huang, University of California, Berkeley, USA and RAI
+Institute, USA, x.h@berkeley.edu; Takara Truong, Stanford University, USA and RAI
+Institute, USA, takaraet@stanford.edu; Yunbo Zhang, RAI Institute, USA, yzhang@
+theaiinstitute.com; Fangzhou Yu, RAI Institute, USA, fyu@theaiinstitute.com; Jean
+Pierre Sleiman, RAI Institute, USA, jsleiman@theaiinstitute.com; Jessica Hodgins, RAI
+Institute, USA, jkh@cs.cmu.edu; Koushil Sreenath, University of California, Berkeley,
+USA and RAI Institute, USA, ksreenath@theaiinstitute.com; Farbod Farshidian, RAI
+Institute, USA, ffarshidian@theaiinstitute.com.
+Permission to make digital or hard copies of all or part of this work for personal or
+classroom use is granted without fee provided that copies are not made or distributed
+We present Diffuse-CLoC, a guided diffusion framework for physics-based
+look-ahead control that enables intuitive, steerable, and physically realistic motion generation. While existing kinematics motion generation with
+for profit or commercial advantage and that copies bear this notice and the full citation
+on the first page. Copyrights for components of this work owned by others than ACM
+must be honored. Abstracting with credit is permitted. To copy otherwise, or republish,
+to post on servers or to redistribute to lists, requires prior specific permission and/or a
+fee. Request permissions from permissions@acm.org.
+© 2025 Association for Computing Machinery.
+0730-0301/2025/8-ART
+https://doi.org/10.1145/3731206
+ACM Trans. Graph., Vol. 44, No. 4, Article . Publication date: August 2025.
+arXiv:2503.11801v3 [cs.GR] 5 Aug 2025
+2 • Xiaoyu Huang, Takara Truong, Yunbo Zhang, Fangzhou Yu, Jean Pierre Sleiman, Jessica Hodgins, Koushil Sreenath, and Farbod Farshidian
+diffusion models offer intuitive steering capabilities with inference-time conditioning, they often fail to produce physically viable motions. In contrast,
+recent diffusion-based control policies have shown promise in generating
+physically realizable motion sequences, but the lack of kinematics prediction
+limits their steerability. Diffuse-CLoC addresses these challenges through a
+key insight: modeling the joint distribution of states and actions within a
+single diffusion model makes action generation steerable by conditioning
+it on the predicted states. This approach allows us to leverage established
+conditioning techniques from kinematic motion generation while producing
+physically realistic motions. As a result, we achieve planning capabilities
+without the need for a high-level planner. Our method handles a diverse set of
+unseen long-horizon downstream tasks through a single pre-trained model,
+including static and dynamic obstacle avoidance, motion in-betweening, and
+task-space control. Experimental results show that our method significantly
+outperforms the traditional hierarchical framework of high-level motion
+diffusion and low-level tracking.
+CCS Concepts: • Computing methodologies → Procedural animation;
+Motion path planning.
+Additional Key Words and Phrases: Character Animation, Unsupervised
+Reinforcement Learning, Diffusion Policy
+ACM Reference Format:
+Xiaoyu Huang, Takara Truong, Yunbo Zhang, Fangzhou Yu, Jean Pierre
+Sleiman, Jessica Hodgins, Koushil Sreenath, and Farbod Farshidian. 2025.
+Diffuse-CLoC: Guided Diffusion for Physics-based Character Look-ahead
+Control. ACM Trans. Graph. 44, 4 (August 2025), 12 pages. https://doi.org/10.
+1145/3731206
+1 INTRODUCTION
+The goal of physics-based character animation has long been the
+synthesis of dynamically realistic motions that can both react to its
+environment and respond to precise user control. Such capabilities
+have broad applications across gaming, virtual/augmented reality,
+and robotics.
+Recent advances in kinematic motion diffusion models have shown
+promise in motion synthesis through conditioning on partial states [Shi
+et al. 2024], text [Tevet et al. 2023], and music [Tseng et al. 2023].
+Furthermore, the same kinematics motion diffusion model can be
+reused on unseen downstream tasks via inference-time conditioning
+such as classifier-guidance or inpainting [Cohan et al. 2024; Karunratanakul et al. 2023]. Yet, these approaches fall short of achieving
+physical realism. To improve physical consistency, a tracking policy can be used to follow the kinematics motions, but ensuring
+robustness to domain shifts introduced by the kinematics generation remains a challenge. On the other hand, prior works [Chi
+et al. 2023; Huang et al. 2024a; Truong et al. 2024] have focused on
+predicting actions, ensuring physical realism without requiring extra components. However, unlike kinematic-based diffusion models,
+these approaches cannot adapt to unseen downstream tasks without
+retraining, as inference-time conditioning techniques are infeasible
+due to the lack of direct comparability between goals defined in
+state space and synthesized action trajectories.
+To bridge the gap between kinematic motion diffusion and action
+diffusion models, we propose Diffuse-CLoC, a diffusion model designed for flexible guidance in physics-based look-ahead control.
+Our goal is to train an end-to-end state-action diffusion model capable of addressing a wide range of unseen, long-horizon downstream
+tasks for a physics-based character, without the need for retraining.
+Our primary insight lies in modeling the joint distribution of states
+and actions within a single diffusion model, which enables action
+generation to be conditioned on the predicted states. Building on
+this insight, we develop a transformer-based diffusion architecture
+and an attention mechanism that includes non-causal attention for
+states and causal attention for actions. We further introduce a rolling
+scheme inspired by [Zhang et al. 2024] to improve consistency and
+speed in auto-regressive policy execution. Ultimately, Diffuse-CLoC
+enables the application of established techniques from kinematic
+motion generation, such as classifier guidance, to perform multiple
+unseen downstream tasks with physics-based characters, including
+waypoint navigation, dynamic obstacle avoidance such as other
+characters, and dynamic maneuvers like jumping over obstacles
+and crawling underneath them, as well as inpainting for motion
+in-betweening task (Fig. 1). Our primary contributions include:
+• A method for training and guiding a diffusion-based policy that
+enables the completion of multiple unseen downstream tasks in
+physics-based character control without requiring task-specific
+fine-tuning or a high-level planner.
+• A novel architecture and attention setup to model the joint
+distribution of states and actions, allowing conditional action
+generation via steerable motion synthesis.
+• An optimized rolling inference scheme for auto-regressive action generation, enabling interactive execution of agile motions,
+significantly improving consistency and speed.
+2 RELATED WORK
+This section reviews recent advancements across several domains
+relevant to our approach, including physics-based character animation, diffusion in physics-based control, steering motion synthesis,
+and inference consistency and speed. An overview of prior works
+in diffusion based methods are shown in Fig. 2.
+2.1 Physics-Based Character Animation
+Early physics-based character animation focused on tracking single
+motion trajectories [Peng et al. 2018]. Subsequent work expanded
+this to capture motion distributions, such as AMP [Peng et al. 2021],
+though these approaches faced challenges in training stability and
+were limited to small datasets. As an alternative, latent skill embeddings were introduced, leveraging a VAE trained on large datasets
+[Won et al. 2022; Yao et al. 2022, 2024; Zhu et al. 2023], which can
+also be paired with a high-level controller to complete downstream
+tasks [Peng et al. 2022; Won et al. 2022; Zhu et al. 2023].
+Recent motion tracking controllers [Luo et al. 2023; Serifi et al.
+2024b] have achieved notable success, leading to approaches that
+decompose the problem into two parts: a kinematic motion synthesis model and a universal tracking controller for the synthesized
+ACM Trans. Graph., Vol. 44, No. 4, Article . Publication date: August 2025.
+Diffuse-CLoC: Guided Diffusion for Physics-based Character Look-ahead Control • 3
+Kinematics Diffusion
+s
+s
+Tracking
+s
+a
+Guidance
+Co-Diffusion
+s a
+s a
+Guidance
+Diffusion Policy
+a
+a
+s
+PDP [Truong 2024]
+Diffusion Policy [Chi 2023]
+CLoSD [Tevet 2024]
+Box Loco [Xie 2023]
+Kinematics +Tracking
+Diffuse-CLoC (Ours)
+Diffusion-based Character Control
+Fig. 2. Three Formulations in Physics-based Control using Diffusion. (a) The factored distribution approach separately learns planning 𝑝 (𝑠 ) and control
+𝑝 (𝑎|𝑠 ), using kinematics planners [Karunratanakul et al. 2023; Tevet et al. 2023; Zhang et al. 2024] and tracking policies [Luo et al. 2023]. Examples of this
+category are [Ajay et al. 2023; Tevet et al. 2024; Xie et al. 2023]. (b) The model-free approach learns 𝑝 (𝑎|𝑠 ) only and does not allow inference-time planning
+[Chi et al. 2023; Huang et al. 2024a; Truong et al. 2024]. (c) The joint distribution approach models 𝑝 (𝑠, 𝑎) directly, enabling state-guided action generation.
+This includes [Janner et al. 2022] and Diffuse-CLoC, where Diffuse-CLoC demonstrates its effectiveness in complex character control tasks.
+motion [Tevet et al. 2024; Xie et al. 2023]. However, the tracking
+controller’s performance heavily depends on the quality of the kinematic trajectory, which can include artifacts like floating bodies,
+foot sliding, and penetration.
+To address this challenge, RobotMDM [Serifi et al. 2024a] fine-tunes
+a motion diffusion model using the value function of an RL tracker
+to produce more trackable motions. Similarly, [Han et al. 2024;
+Li et al. 2024a] refine diffusion models directly with PPO-based
+reinforcement learning guided by an RL tracker’s reward. Other
+methods instead fine-tune the tracking controller to handle artifacts
+created by the diffusion model [Tevet et al. 2024].
+Despite these advancements, trackers are often sensitive to out
+of distribution motions and require task-specific fine-tuning for
+applications like object interaction [Tevet et al. 2024]. Furthermore,
+we demonstrate that even minor classifier guidance on kinematic
+trajectories can hurt the robustness of general tracking controllers.
+2.2 Diffusion in Physics-based Control
+Diffusion policies have been successfully applied in character animation [Truong et al. 2024], manipulation [Chi et al. 2023], and
+locomotion [Huang et al. 2024a; Mothish et al. 2024] domains. However, its action-only generation makes inference-time conditioning
+impractical. In contrast, Diffuser [Janner et al. 2022] diffuses both
+states and actions, enabling classifier guidance through a reward
+formulation though exhibits limited robustness [Chen et al. 2024].
+Decision Diffuser [Ajay et al. 2023] improves robustness by similarly diffusing both states and actions, but discards actions during
+inference, relying instead on a trained inverse dynamics model. In
+contrast, our method enables both intuitive guidance directly in
+state space and high-quality conditional generation in action space.
+2.3 Steering Motion Synthesis
+This section discusses common methods for steering motion synthesis, enabling pretrained models to be re-used for novel downstream
+tasks. Each approach provides a unique mechanism to align the
+generative process with task-specific requirements or constraints.
+Classifier-free guidance enhances sample quality and control by
+interpolating between an unconditional and a conditional model
+during the generation process, without requiring an explicit classifier [Ho and Salimans 2021]. In character animation, this method
+has been used to synthesize motions with text conditioning [Tevet
+et al. 2023; Truong et al. 2024]. However, the conditioning signals
+must be specified during training, and the model must be re-trained
+for any new conditioning signals.
+Classifier guidance incorporates conditional information after the
+training phase by utilizing the gradient of a pre-trained classifier
+[Dhariwal and Nichol 2024] or cost function [Carvalho et al. 2023].
+This technique guides the diffusion model’s generative process,
+steering outputs toward the desired class or minimizing the loss. In
+character animation, it allows a single pre-trained kinematics model
+to address multiple downstream tasks, such as obstacle avoidance
+and reaching [Janner et al. 2022; Karunratanakul et al. 2023]. Despite its success, classifier guidance has not yet been explored for
+dynamic tasks in underactuated robotic systems, such as physicsbased character animation.
+Inpainting involves generating or reconstructing missing regions
+of the original signal by conditioning the diffusion process on the
+surrounding known context. In character animation, this technique
+is useful for generating trajectories with partially known states,
+such as root trajectories [Karunratanakul et al. 2023] or a set of
+desired joint trajectories [Tseng et al. 2023].
+Reinforcement learning has been employed as a high level planner
+to direct the diffusion process for downstream tasks [Shi et al. 2024].
+When future trajectory predictions are absent, a high-level planner
+is essential to strategize [Shi et al. 2024]; however, our method can
+plan and foresee future events, allowing the accomplishment of
+downstream tasks without the need for a high-level planner.
+2.4 Inference Consistency and Speed
+A key challenge for generative planners is ensuring that the generated plans do not conflict during rollouts. Frequent replanning with
+multimodal trajectory distributions can lead to alternating behavior
+modes, negatively affecting task performance [Römer et al. 2024].
+One approach is to execute a fixed action sequence before replanning
+[Chi et al. 2023], but this lacks real-time state feedback, reducing
+robustness. Another solution, Action Chunking [Zhao et al. 2023],
+ACM Trans. Graph., Vol. 44, No. 4, Article . Publication date: August 2025.
+4 • Xiaoyu Huang, Takara Truong, Yunbo Zhang, Fangzhou Yu, Jean Pierre Sleiman, Jessica Hodgins, Koushil Sreenath, and Farbod Farshidian
+averages predictions over time for consistency but may yield suboptimal results by averaging dissimilar plans. Alternatively, [Römer
+et al. 2024] selects the closest trajectory to the previous one but
+incurs overhead from concurrently sampling multiple trajectories.
+Inference speedup can be naïvely achieved by minimizing diffusion
+steps at the cost of diversity, though techniques such as one-step
+diffusion [Wang et al. 2024] could mitigate these tradeoffs. Hybrid methods, which pair fast architectures for initial guesses with
+slower fine-tuning of models [Li et al. 2024b], balance speed and
+accuracy. Rolling or streaming strategies apply noise based on temporal proximity—less for immediate actions and more for distant
+ones—enabling faster generation of infinite sequences [Høeg et al.
+2024; Zhang et al. 2024]. Building upon this, we find that rolling
+addresses both motion consistency and speedup by maintaining
+diversity for future decisions while solidifying immediate ones.
+3 METHOD
+We propose Diffuse-CLoC, a novel framework that allows classifier guidance and inpainting in state space to generate actions to
+physically steer the character for various tasks zero-shot.
+Our approach to modeling complex motion behaviors builds upon
+denoising diffusion probabilistic models (DDPMs) [Ho et al. 2020]. At
+each timestep 𝑡, our model predicts a trajectory𝝉𝑡 = [𝒂𝑡
+,𝒔𝑡+1, 𝒂𝑡+1, . . . ,
+𝒔𝑡+𝐻 , 𝒂𝑡+𝐻 ] that contains the current action as well as the 𝐻 steps
+of state-action pairs in the future. Moreover, we let 𝑶𝑡 be the observation history of state-action pairs of length 𝑁, as well as the
+current state, 𝒔𝑡
+, i.e., 𝑶𝑡 = [𝒔𝑡−𝑁 , 𝒂𝑡−𝑁 , · · · ,𝒔𝑡].
+We train a prediction network, 𝝉ˆ𝑡 = 𝑥0,𝜃 (𝝉
+𝒌
+𝑡
+, 𝑶𝑡
+, 𝒌) that aims to produce a clean trajectory, where 𝝉
+𝒌
+𝑡
+is 𝝉 with added Gaussian noise
+based on the noise level 𝒌. We assign independent noise levels per
+timestep for states and actions along the trajectory, i.e. 𝒌 = (𝒌𝒔, 𝒌𝒂),
+where 𝒌𝒔, 𝒌𝒂 ∈ R
+𝑁 +𝐻+1
+. We then follow Stochastic Langevin Dynamics [Welling and Teh 2011] to sample iteratively,
+𝝉
+𝒌−1
+𝑡 = 𝛼𝒌 (𝝉
+𝒌
+𝑡 −𝛾𝒌𝜖𝜃
+(𝝉
+𝒌
+𝑡
+, 𝑶𝑡
+, 𝒌) + N (0, 𝜎𝒌
+2
+𝑰)), (1)
+where 𝛼𝒌,𝛾𝒌, and 𝜎𝒌 are DDPM parameters, and 𝜖𝜃
+(·) =
+1 √
+1−𝛼𝒌
+𝝉
+𝒌
+𝑡 −
+√
+𝛼𝒌 √
+1−𝛼𝒌
+𝑥0,𝜃 (·) is the predicted noise taken away from the noisy trajectory. Training of DDPMs is self-supervised, with 𝒌𝒔𝑖
+, 𝒌𝒂𝑖 ∼ U (0, 𝐾)
+sampled uniformly up to the maximum diffusion step 𝐾. We train
+with the mean squared error (MSE) loss against the clean trajectory:
+L = 𝑀𝑆𝐸(𝑥0,𝜃 (𝝉
+𝒌
+𝑡
+, 𝑶𝑡
+, 𝒌), 𝝉𝑡) (2)
+‘
+Diffusion models, though trained unconditionally, can be adapted
+for conditional generation during inference. By Bayes’ rule, the
+denoiser’s learned score function ∇𝝉 log 𝑝(𝝉) [Song et al. 2021] can
+be extended to the conditional form ∇𝝉 log 𝑝(𝝉 | 𝝉
+∗
+) = ∇𝝉 log 𝑝(𝝉)+
+∇𝝉 log 𝑝(𝝉
+∗
+| 𝝉), where 𝝉
+∗
+is the optimal trajectory. Given a cost
+function 𝐺
+𝑐
+𝝉
+(𝝉), we let the conditional probability of the optimal
+trajectory to be 𝑝(𝝉
+∗
+| 𝝉) ∝ exp(−𝐺
+𝑐
+𝝉
+(𝝉)). Then, the posterior
+gradient, ∇𝝉 log 𝑝(𝝉
+∗
+| 𝝉) = −∇𝝉𝐺
+𝑐
+𝝉
+(𝝉), naturally aligns with the
+descending direction of the cost. This approach, formally classifier
+guidance, conditions the diffuser using any cost function𝐺
+𝑐
+𝝉
+(𝝉) with
+a computable gradient ∇𝝉𝐺
+𝑐
+𝝉
+(𝝉).
+In character animation, classifier guidance is effective in kinematics
+generation, where cost functions can be readily defined and computed, but not in action space. We address this limitation by a novel
+co-diffusion of states and actions, allowing kinematic guidance to
+effectively condition action generation for complex tasks.
+3.1 Co-diffusing States and Actions
+The core idea of our method is co-diffusing state and action, making
+our diffusion model both an autoregressive motion generator and
+a control policy. Moreover, we propose a novel transformer architecture, introducing an attention mechanism that allows guidance
+to propagate from future states to current actions and a loss mask
+to improve model robustness. This design simultaneously enables
+long-horizon state predictions and robust actions for complex tasks.
+Architecture: Diffuse-CLoC uses a decoder-only transformer architecture, as shown in Fig. 3. In contrast to Diffuser [Janner et al. 2022],
+where a pair of state and action is combined into a single transformer
+token, our model takes the state and action input embeddings as
+separate tokens. Both the state and action tokens are concatenated
+from an MLP embedding and a sinusoidal embedding of their corresponding noise levels 𝒌𝒔 and 𝒌𝒂. We use a two-layer MLP for the
+state encoder and a linear layer for the action encoder. We then add
+learnable positional encodings to each token. The state and action
+embeddings over time are fed into a GPT-style decoder [Radford
+2018], followed by layer norm and the corresponding linear layers
+as output heads.
+Attention: Diffuse-CLoC uses a tailored attention mask that differentiates between states and actions. Shown in Fig. 3 (Right), actions
+use a causal attention mask, attending only to past states to anchor
+the trajectory and filter out prediction artifacts in future states, in
+addition to past actions for regularization. In contrast, states are
+permitted to attend to future states, enabling future information
+to backpropagate to current state. Additionally, disabling attention
+from states to actions simplifies learning without compromising the
+quality of kinematics prediction.
+Shorter Action Horizon: Predicting long state horizons, such as
+those extending to about a second, is essential for multi-modality
+and long-term planning required by certain tasks, but long-term
+action prediction is challenging due to increased variance [Truong
+et al. 2024]. To address this, we limit the action horizon to at most
+16 steps and mask long-term future actions in the loss function,
+focusing on the initial actions only.
+Emphasis Projection: To enhance state representation, we integrate
+emphasis projection [Karunratanakul et al. 2023] to emphasize the
+global states in the state space. Specifically, we define a projection
+matrix 𝑷 = 𝑨𝑩, where 𝑨𝑖𝑗 ∼ N (0, 1), and 𝑩 a diagonal matrix with
+entries corresponding to the global states set to 𝑐 > 1 and others to
+one. Furthermore, unlike [Karunratanakul et al. 2023], sensitivity to
+local states is also preserved by concatenating projected and original
+states, i.e. 𝑷 = [𝑨𝑩 I].
+ACM Trans. Graph., Vol. 44, No. 4, Article . Publication date: August 2025.
+Diffuse-CLoC: Guided Diffusion for Physics-based Character Look-ahead Control • 5
+query
+key
+s
+t+2
+a
+t+2
+causal
+action
+full-attn.
+state
+attention mask
+diffusion
+iteration
+noise level
+high
+low
+s
+S a s a s a
+s
+S a s a s a
+t-1 t-1 t t t+1 t+1
+t-1 t-1 t t t+1 t+1
+··· denoiser transformer ···
+K×
+t
+t
+s
+S
+a
+t-2
+t-2
+rolling scheme
+t
+FIFO Buffer
+S and A are different tokens
+Different noise (unidiffuser paper
+proves it)
+emb. +
+pos. enc.
+dec.
+Fig. 3. Framework of Diffuse-CLoC. The rolling scheme (Left) is implemented as a FIFO buffer, where at every timestep 𝑡, a state and action pair of pure
+noise is pushed into the denoiser, while the earliest clean pair is popped out and used to step the simulator. The denoiser architecture (Middle) denoises the
+buffer of states and actions with an increasing noise level along the trajectory. The observation 𝑂𝑡 is directly inpainted into the sequence, and only noisy future
+predictions are denoised. Notice that noisy states and actions have different shades, meaning that their noise levels 𝒌𝒔 , 𝒌𝒂 can be different. The attention
+mask (Right) shows that state attends to all past and future states but masks out all actions, while action is causal attending to previous states and actions.
+3.2 Rolling Inference
+During inference, we use receding horizon control and replan at
+every timestep, executing only the immediate action. This approach
+improves robustness over open-loop execution by allowing the
+policy to adapt to the latest observations.
+However, an issue in constant replanning is that planned trajectories could be inconsistent, causing oscillations. To address this issue,
+we use a rolling inference scheme. While a similar technique was
+introduced to generate infinite motions in kinematics space [Zhang
+et al. 2024], we find it also improves the policy consistency during
+autoregressive execution. A FIFO buffer assigns noise levels based
+on the proximity of trajectory step to the current timestep. At each
+timestep, new Gaussian noise is added to the buffer while the oldest
+is removed. This approach leverages previous diffusion results for
+warmup, ensuring consistency and reducing diffusion steps. Since
+the the classifier guidance signal diminishes as 𝒌 → 0, we perform rolling at a higher 𝒌 for stronger guidance, while maintaining
+consistency and achieving speedup.
+4 APPLICATIONS
+The goal of pretraining a generative controller is to handle diverse
+downstream tasks. Unlike hierarchical approaches that separate
+planners and tracking controllers, co-diffusing states and actions integrates planning and execution during inference through guidance
+and inpainting. This approach eliminates the need for additional
+components or training, resulting in a unified policy capable of
+solving multiple tasks as detailed below.
+4.1 Static Obstacle Avoidance
+Reacting to obstacles while navigating from A to B can produce the
+same behavior during inference by introducing a guidance cost that
+pushes the character away from obstacles:
+𝐺
+obs
+𝝉
+(𝝉) =
+∑︁
+𝑗
+𝑡∑︁+𝐻
+𝑡
+′=𝑡
+exp
+− 𝑐 · SDF𝑗
+(𝒔𝑡
+′ )
+
+, (3)
+where 𝑐 determines the safe distance and SDF𝑗
+(·) is the Signed
+Distance Function from the 𝑗-th obstacle. For certain obstacles, such
+as a block on the ground, interaction (e.g., jumping onto it) may be
+desired rather than strict avoidance. In this case, we clip the SDF
+value outside the object to zero, penalizing only when the planned
+trajectory penetrates the obstacle. To achieve point-goal navigation
+while avoiding obstacles, the obstacle cost 𝐺
+obs
+𝝉
+(𝝉) can be combined
+with waypoint guidance, 𝐺
+wp
+𝝉
+(𝝉) =
+Í𝑡+𝐻
+𝑡
+′=𝑡
+∥𝑃root(𝒔𝑡
+′ ) − 𝑔∥
+2
+, where
+𝑃root is the mapping from state representation to root position, and
+𝑔 is the waypoint or goal location. We showcase different results
+using such costs in Fig. 1, 4c, 4d, and 4e.
+4.2 Dynamic Obstacle Avoidance
+A more advanced obstacle avoidance task involves avoiding not only
+static obstacles but also each other as dynamic obstacles. Using the
+planning horizon, the obstacle avoidance cost 𝐺
+obs
+𝝉
+can be extended
+to consider distances for dynamic obstacles at each timestep:
+𝐺
+sa
+𝝉,𝑖(𝝉) =
+∑︁
+𝑗≠𝑖
+𝑡∑︁+𝐻
+𝑡
+′=𝑡
+exp
+− 𝑐 · ∥𝑃root(𝒔
+𝑖
+𝑡
+′ ) − 𝑃root(𝒔
+𝑗
+𝑡
+′ ) ∥2
+
+, (4)
+where 𝐺
+sa
+𝝉,𝑖 is the cost for the 𝑖-th character and 𝑠
+𝑗
+𝑡
+′
+is the state of the
+𝑗-th character at timestep 𝑡
+′
+. Fig. 1 shows an example of characters
+navigating through a forest of pillars while avoiding each other.
+This formulation allows characters to generate smooth trajectories
+that avoid collisions and pass each other seamlessly.
+4.3 Task Space Control
+Another challenging task is conditioning on target states for specific
+joints at arbitrary future timesteps within the planning horizon. This
+problem can be tackled using classifier guidance,
+𝐺
+ts
+𝝉
+(𝝉) =
+∑︁
+𝑡
+′∈𝑇
+∥𝑃𝑥 (𝒔𝑡
+′ ) − 𝑔𝑡
+′ ∥
+2
+, (5)
+where 𝑇 is the set of keyframe timesteps, and 𝑔𝑡
+′ represents the
+target at 𝑡
+′
+. 𝑃𝑥 (·) is the mapping from state representation to the
+task space, such as the root and end-effector positions, velocities, or
+combinations of them. In this work, we show the following tasks:
+Root Path Following: Setting the root position as the task space
+and specifying the target, 𝑔, as the desired root position along the
+ACM Trans. Graph., Vol. 44, No. 4, Article . Publication date: August 202
+6 • Xiaoyu Huang, Takara Truong, Yunbo Zhang, Fangzhou Yu, Jean Pierre Sleiman, Jessica Hodgins, Koushil Sreenath, and Farbod Farshidian
+path ensures precise root path tracking. Fig. 4b shows a character
+following an "S" shaped path while switching across styles.
+Reaching: Setting one body part as the task space allows the character to generate motions to reach a target 𝑔 using dataset motions as
+shown in Fig. 4a.
+Gamepad Controller Steering: Shown in Fig. 1, setting the root’s
+velocity, heading, and height as the task space, with 𝑔 from gamepad
+inputs, enables real-time character steering.
+4.4 Motion In-Betweening
+In this task, the policy generates dense trajectories between a set of
+desired keyframes. With sparse keyframes, inpainting often struggles to differentiate clean from noisy states. While previous methods
+rely on extra masking to label these states [Cohan et al. 2024], our
+approach, shown in Fig. 1, can explicitly set the inpainted states to
+zero noise, naturally differentiating them from other noisy states.
+𝒔𝑡 = 𝒔ˆ𝑡
+, 𝒌𝒔𝑡 = 0, ∀𝑡 ∈ 𝑇 , (6)
+where 𝒔ˆ𝑡 represents keyframe states, 𝒌𝒔𝑡
+is the noise level at timestep
+𝑡, and 𝑇 is the set of keyframe timesteps.
+5 EXPERIMENTS AND RESULTS
+We evaluate our method in two sections. First, we perform a comparative analysis with conventional hierarchical kinematics-tracking
+frameworks on various downstream tasks. Second, we ablate on key
+architectural components to validate our design choices.
+5.1 Data
+We use a subset of AMASS [Mahmood et al. 2019], comprising 54
+motions of walking, running, crawling, and jumping. To track these
+motions and collect state-action pairs, we employ PHC+ [Luo et al.
+2024] as our motion tracking controller. For each motion, we collect
+on average 40 rollouts (≈ 3.5 hours). Following [Truong et al. 2024],
+we inject action noise during rollout to perturb the state and collect
+corrective actions. The state and action definitions are as follows:
+State. We use the SMPL skeleton from [Luo et al. 2023], with 𝐽 = 23
+spherical joints. The overall state vector is 165-dimensional, consisting of Global and Local states defined as the following:
+• Global States: root states including position (R
+3
+), linear velocity (R
+3
+), and rotation (R
+3
+) represented as rotation vectors, as
+in [Zhang et al. 2023]. These values are expressed relative to the
+character frame at the current timestep.
+• Local States: joint states including Cartesian positions (R
+3𝐽
+),
+linear velocities (R
+3𝐽
+), and rotations of hands and ankles (R
+3×4
+)
+also represented as rotation vectors. These quantities are expressed relative to the character frame at each timestep.
+Action. The action space is a 69-dimensional vector, representing
+the target joint positions (R
+3𝐽
+) for the joint PD controller.
+5.2 Experiment Setup
+We train Diffuse-CLoC using an observation history of 𝑁 = 4(≈
+0.13𝑠) and predict future states for 𝐻 = 32(≈ 1𝑠). We limit the
+action horizon to 16 steps. The model employs a transformer decoder
+with 6 layers, 8 heads, 512-dimensional embedding, totaling 19.95𝑀
+parameters and requiring approximately 1 GB of GPU memory for
+inference. Training is conducted with 20 denoising steps and an
+attention dropout rate of 𝑝 = 0.3
+We optimize using AdamW with a learning rate of 1 × 10−4
+, weight
+decay of 1×10−3
+, a 10,000-step warmup phase, and a cosine learning
+rate schedule. For proper guidance strength, we include state rolling
+at a noise level of 14, and action rolling at a noise level of 4. We
+train on a single Nvidia A100 GPU for 1,000 epochs ( 24 hours).
+Inference time is gathered on a Nvidia RTX 4060 GPU with TensorRT
+acceleration.
+5.2.1 Task & Metrics. We evaluate our method across four tasks:
+• Walk-Perturb: We apply an instantaneous perturbation force
+sampled between 0 to 3000N every second during a 30s walk.
+We assess fall rate and motion quality using FID.
+• Forest: We randomly place 15 cylinder pillars in an 8 m × 9 m
+area. The character navigates to a target point on the other side,
+with success rate and traversal time as metrics.
+• Jump: We randomly place a 0.3-0.5 m tall box obstacle 1-2 m in
+front of the character. We measure success rate for clearing the
+obstacle without falling.
+• Motion In-Betweening: We generate keyframes by randomly
+concatenating (without interpolating) three training motions,
+sampling three keyframes from each at 1-second intervals, and
+measure fall rate, mean keyframe root error (MRPE), and mean
+keyframe joint position error (MJPE).
+For all tasks, a fall is determined if head height drops below 0.2 m.
+5.2.2 Baseline. The baseline we compare against represents the
+category of methods that tracks a diffused kinematic trajectory.
+For the kinematics component, we train a diffusion model similar
+to the motion generation model in Guided-MDM [Karunratanakul
+et al. 2023], and for tracking we use PHC+ [Luo et al. 2024] . Since
+replanning frequency is a key design consideration in hierarchical
+approaches, we evaluate this baseline (Kin+PHC) across various
+replanning frequencies.
+5.2.3 Ablation. We ablate over critical design choices, including
+prediction horizon for both state and action, as well as the number of
+diffusion steps. We also compare different attention schemes, including full attention, which enables unrestricted attention between all
+states and actions, and diffuser attention, which restricts attention
+to each token and its adjacent steps, following [Janner et al. 2022].
+5.3 Comparing Kinematics + Tracking
+We compare Kin+PHC with Diffuse-CLoC across four tasks, finding
+that Diffuse-CLoC consistently outperforms all baseline variants
+(Table 1). Kin+PHC exhibits a trade-off between motion quality and
+task success: slower replan frequencies improve motion smoothness
+(e.g., FID improves from 0.185 at 1-step replan to 0.038 at 32-step
+replan in the walk+perturb task) but fails to adapt to abrupt state
+changes. This results in a higher fall rate, which increases from 30%
+ACM Trans. Graph., Vol. 44, No. 4, Article . Publication date: August 2025.
+Diffuse-CLoC: Guided Diffusion for Physics-based Character Look-ahead Control • 7
+Table 1. Benchmark for Kinematic-tracking baselines v.s. Diffuse-CLoC across various tasks.
+Method Replan
+Interval
+Walk + Perturb Forest Jump Motion In-Between
+% Fall ↓ FID ↓ % Success ↑ Time ↓ % Success ↑ % Fall ↓ MJPE ↓ MRPE ↓
+Kin+PHC
+1 30 0.185 69 39.72 0 66 0.2 0.985
+4 26 0.162 38 40.31 1 38 0.148 0.544
+8 28 0.088 83 22.57 21 55 0.158 0.53
+16 30 0.073 68 16.87 22 55 0.140 0.388
+32 44 0.038 22 22.28 15 60 0.191 0.939
+Diffuse-CLoC (ours) 1 16 0.074 96 13.23 71 31 0.116 0.322
+at 1-step to 44% at 32-step intervals. In contrast, Diffuse-CLoC maintains low FID (0.074) and reduces the fall rate to 16%, demonstrating
+robust performance with plausible motion quality.
+Kin+PHC’s performance also depends heavily on the kinematic planner aligning with the RL tracker’s learned distribution, which is vulnerable to inference-time conditioning. In the jump task, Kin+PHC
+achieves only 22% success at 16-step intervals, as obstacle avoidance
+guidance generates trajectories outside the tracker’s capabilities.
+Similarly, in motion in-betweening, Kin+PHC exhibits higher fall
+rates (66% at 1-step) and less precise motion (MJPE 0.2, MRPE 0.985).
+In contrast, Diffuse-CLoC achieves 71% success in jump and reduces
+fall rates to 31% with lower MJPE (0.116) and MRPE (0.322).
+Unlike Kin+PHC, Diffuse-CLoC uses the joint distribution of states
+and actions, allowing it to fit over the entire horizon to generate dynamically feasible actions, even with partially corrupted kinematic
+inputs. By avoiding strict state tracking, Diffuse-CLoC reduces the
+infeasible motions from classifier guidance, as shown in Fig. 5.
+5.4 Effect of Prediction Horizon
+The planning horizon significantly impacts the performance of
+Diffuse-CLoC (Table 2), similar to its effect on conventional planning algorithms, where complex tasks require a sufficiently long
+planning horizon. With a shorter horizon of 16 timesteps (≈ 0.5s),
+the policy lacks foresight and struggles with forest navigation and
+complex maneuvers (squatting and jumping), leading to poor success rates. In contrast, extending the horizon to 32 timesteps (≈ 1s)
+dramatically improves performance, with forest navigation success
+at 96% and jumping tasks at 71%. Fig. 6 highlights this comparison
+visually: a 0.5s horizon results in circular or stuck behaviors, as
+the short-sighted policy fails to make progress through the forest,
+while a 1s horizon enables successful task completion with diverse
+and adaptive solution paths that navigate around obstacles effectively. However, extending the horizon to 2s reduces performance,
+as increased long-term prediction variance causes the policy to
+overcommit to suboptimal trajectories. As uncertainty decreases
+near obstacles, the policy recognizes the suboptimality but lacks
+flexibility to adjust.
+In contrast, a moderate action length improves action quality in
+agile motions like jumping. While one-step predictions cause jitter, longer predictions face higher future variance. Nevertheless,
+codiffusing states and actions allows it to leverage the lower state
+Table 2. Ablation study on horizon lengths, diffusion steps, attention styles,
+and rolling schemes. * marks the final model choice.
+Horizon Speed Forest Jump
+State Action (Hz) % Success ↑ Task Time ↓ % Success ↑
+16
+1 85.47 4 50.24 0
+4 85.47 5 34.28 0
+8 85.47 1 59.87 1
+16 85.47 0 NA 0
+32∗
+1 77.41 57 21.83 18
+4 77.41 84 14.30 77
+8 77.41 80 13.14 75
+16∗
+77.41 96 13.23 71
+64
+1 60.06 20 34.67 0
+4 60.06 56 23.77 5
+8 60.06 18 15.31 33
+16 60.06 19 27.84 6
+Rolling Enabled
+✓
+∗ ✓
+∗
+77.41 96 13.23 71
+✓ 58.06 79 14.75 76
+✓ 58.06 96 10.62 43
+58.06 95 10.72 40
+Attention Style
+Full 77.41 58 15.08 53
+Diffuser 77.41 0 NA 0
+variance to improve the robustness of long action predictions, an advancement over prior works [Huang et al. 2024a; Truong et al. 2024].
+In general, 32 state predictions combined with 16 action predictions
+yield optimal performance across our evaluation tasks.
+5.5 Effect of Different Attention Schemes
+The attention mechanism plays a critical role in enhancing policy robustness. To ensure the plan is effectively followed, actions
+should be influenced by anticipated future conditions. We evaluated
+different attention schemes to assess their impact on performance.
+Full Attention. Allowing actions to directly attend to future states
+(full attention) decreases success rates (Table 2). This decrease is due
+to two factors: (1) future states often include artifacts, and (2) due
+ACM Trans. Graph., Vol. 44, No. 4, Article . Publication date: August 2025.
+8 • Xiaoyu Huang, Takara Truong, Yunbo Zhang, Fangzhou Yu, Jean Pierre Sleiman, Jessica Hodgins, Koushil Sreenath, and Farbod Farshidian
+a)
+b) c)
+d) e)
+Fig. 4. Downstream Tasks
+f)
+a) Task is to touch the red ball with the character’s right hand via classifier guidance. The red ball is re-located when the character
+achieves the task. b) Root path following via classifier guidance. We can further refine styles by constraining parameters like base velocity and heading. c)
+Walk and jump over two consecutive obstacles. d) Run and jump over obstacles. e) Jumping on different platforms using penetration cost and waypoint to
+each platform. f ) A sequence of tasks in a single run, including route path following, platform jumping, and reaching a waypoint behind cylindrical barriers.
+to the rolling scheme, future states tend to be noisier, making direct
+attention to future states unreliable.
+Diffuse-CLoC’s Causal Action Attention. In contrast, DiffuseCLoC adopts causal attention, restricting focus to current and past
+states and actions. Future states still indirectly influence actions
+by propagating their effects to the current state, 𝑠0. This approach
+avoids the noise and artifacts associated with direct future state
+attention. As shown in Fig. 7, 𝑠0 attends more strongly to past states
+than to future predictions, prioritizing dependable information and
+improving generalization. This design enables Diffuse-CLoC to produce accurate and robust actions across tasks.
+Diffuser’s Local Receptive Field. Diffuser [Janner et al. 2022] employs a limited receptive field, restricting attention to neighboring
+states and actions. This design prevents effective propagation of
+future information back to current actions, leading to poor coordination between state predictions and actions. Consequently, Diffuser
+struggles with task performance, as it cannot align actions with
+anticipated future conditions.
+5.6 Effect of Different Rolling Schemes
+Shown in Table 2, we observe a trade-off in rolling schemes across
+tasks. In the jump task, disabling state rolling causes changes in the
+ACM Trans. Graph., Vol. 44, No. 4, Article . Publication date: August 2025.
+Diffuse-CLoC: Guided Diffusion for Physics-based Character Look-ahead Control • 9
+motion plan which disrupt the character’s momentum, leading to
+lower jump heights and poor success rates. Conversely, in the forest
+task, an optimal plan for the current timestep may become suboptimal as distant obstacles enter the planning horizon. Enforcing
+consistency with these suboptimal plans lowers success rates and
+extends completion time. Despite these trade-offs, our best model
+performs robustly across scenarios with a single set of parameters.
+For action rolling, the impact on performance is minimal, enabling
+a 25% acceleration in the diffusion process without significant loss.
+6 DISCUSSION AND FUTURE WORK
+In this work, we introduced Diffuse-CLoC, a guided diffusion model
+for physics-based character look-ahead control. By co-diffusing a
+long horizon of states and actions, our approach overcomes limitations in existing methods, such as limited steerability and physical inconsistencies in generated motions. Diffuse-CLoC employs
+inference-time conditioning techniques to leverage intuitive statespace guidance for generation in action space, enabling flexible reuse
+for novel downstream tasks without retraining or finetuning. Experimental results highlight its zero-shot capability to address diverse
+tasks, including static and dynamic obstacle avoidance, dynamic maneuvers, and task-space control using a single model. We showcase
+a long-horizon run with these diverse tasks in Fig. 8.
+Despite its effectiveness, our approach has several limitations that
+open directions for future research. One key challenge is tuning the
+strength of classifier guidance to ensure task success while staying
+within the training distribution. For some tasks, particularly those
+involving jumping or crawling, overly strong guidance sometimes
+led to unnatural motions or degraded quality. In these cases, increased guidance weight on obstacle clearance was necessary to
+ensure successful execution. Exploring alternative guidance formulations such as using future returns instead of immediate rewards
+Predicted
+States
+Fig. 5. Rollouts in jump task for Kin+PHC (Left) vs. Diffuse-CLoC
+(Right). Kin+PHC suffers from artifacts in kinematics prediction and fails
+in agile motions, while Diffuse-CLoC remains robust and completes the
+task.
+or incorporating trust region constraints [Huang et al. 2024b] could
+provide better control.
+Another limitation stems from insufficient data coverage. In tasks
+like hand-reaching or root path tracking, the model sometimes exhibits erroneous behaviors. For instance, jumping in place when
+asked to reach overhead. This is because jumping motions are
+present in the training dataset while overhead-reaching motions
+are not. While additional data would help mitigate these issues, our
+experiments were designed to evaluate performance under limited
+coverage.
+We also observed reduced motion quality in some results, such as
+foot jitter. This is likely caused by torque noise added during data
+augmentation. However, without this noise, diffusion fails due to
+compounding errors [Truong et al. 2024]. Future work could explore
+0 2 4 6 8 10 12 14
+x (m)
+3
+2
+1
+0
+1
+2
+3
+4
+y (m)
+(a) Prediction Length = 0.5 s
+0 2 4 6 8 10 12 14
+3
+2
+1
+0
+1
+2
+3
+4
+y (m)
+(b) Prediction Length = 1.0 s
+0 2 4 6 8 10 12 14
+3
+2
+1
+0
+1
+2
+3
+4
+y (m)
+(c) Prediction Length = 2.0 s
+0 2 4 6 8 10 12 14
+x (m)
+3
+2
+1
+0
+1
+2
+3
+4
+y (m)
+(a) Prediction Length = 0.5 s
+0 2 4 6 8 10 12 14
+3
+2
+1
+0
+1
+2
+3
+4
+y (m)
+(b) Prediction Length = 1.0 s
+0 2 4 6 8 10 12 14
+3
+2
+1
+0
+1
+2
+3
+4
+y (m)
+(c) Prediction Length = 2.0 s
+0 2 4 6 8 10 12 14
+x (m)
+3
+2
+1
+0
+1
+2
+3
+4
+y (m)
+(a) Prediction Length = 0.5 s
+0 2 4 6 8 10 12 14
+3
+2
+1
+0
+1
+2
+3
+4
+y (m)
+(b) Prediction Length = 1.0 s
+0 2 4 6 8 10 12 14
+3
+2
+1
+0
+1
+2
+3
+4
+y (m)
+(c) Prediction Length = 2.0 s
+Fig. 6. Rollouts in the forest task for 0.5s prediction (Top), 1s prediction (Middle), and 2s prediction (Bottom). Starting at the triangle, the
+character aims to reach the goal marked by a star. The 0.5s policy circles
+within the forest and fails to reach the waypoint, while the 1s policy successfully navigates through the forest with diverse trajectories. In contrast, the
+2s policy sometimes overcommits to suboptimal future paths and collides
+with obstacles near the goal.
+ACM Trans. Graph., Vol. 44, No. 4, Article . Publication date: August 2025.
+10 • Xiaoyu Huang, Takara Truong, Yunbo Zhang, Fangzhou Yu, Jean Pierre Sleiman, Jessica Hodgins, Koushil Sreenath, and Farbod Farshidian
+0 4 13 29
+32
+24
+16
+8
+0
+Rollout Time
+Query: s0
+0 4 13 29
+Query: s4
+0 4 13 29
+Query: s13
+0 4 13 29
+Query: s29
+0.1
+0.2
+0.3
+0.4
+Attention Weight
+Key: States of Entire Trajectory
+Fig. 7. Attention Maps for Obstacle Jumping. Each subplot shows how a state 𝑠𝑡 attends to tokens across the prediction horizon (x axis, −3 to 0 are
+observations) and over simulation time steps (y axis). First, the model learns localized attention to nearby states over time, indicated by the vertical color band
+around each state. Diagonal patterns at 𝑠4, 𝑠13, and 𝑠29 indicate the model attends to the obstacle when predicted states encounter it with guidance cost and
+propagates this information backward for planning. Notably, future states also attend to past obstacle events to support planning. In contrast, 𝑠0, the current
+state, consistently attends more strongly to past states than to future predictions, reducing the impact of artifacts from noisy future states.
+b) c)
+d) e)
+Fig. 8. A long-horizon sequence of diverse tasks. A sequence of tasks in a single run, including route path following, platform jumping, and reaching a
+waypoint behind cylindrical barriers.
+alternative augmentation methods to reduce compounding errors
+while improving motion smoothness.
+In addition, the model’s reliance on historical observations biases it
+toward previously seen motion patterns, which can limit transitions
+and responsiveness, as noted in [Chen et al. 2024]. For example,
+some characters in the video are not very responsive to the guided
+signals in their tasks. We believe historical observations impose a
+constraint on the character, making the effect of future state predictions propagate slower to affect the next action. Future work could
+explore reducing this dependency.
+Lastly, extending our approach to human-object interaction remains
+an open challenge. Physical manipulation and contact-rich behaviors introduce complexities beyond the current framework, presenting an exciting direction for future work.
+REFERENCES
+Anurag Ajay, Yilun Du, Abhi Gupta, Joshua Tenenbaum, Tommi Jaakkola, and Pulkit
+Agrawal. 2023. Is Conditional Generative Modeling all you need for DecisionMaking? https://openreview.net/forum?id=sP1fo2K9DFG
+Joao Carvalho, An T. Le, Mark Baierl, Dorothea Koert, and Jan Peters. 2023. Motion
+Planning Diffusion: Learning and Planning of Robot Motions with Diffusion Models.
+, 1916–1923 pages.
+Boyuan Chen, Diego Marti Monso, Yilun Du, Max Simchowitz, Russ Tedrake, and Vincent Sitzmann. 2024. Diffusion Forcing: Next-token Prediction Meets Full-Sequence
+Diffusion. arXiv:2407.01392 [cs.LG] https://arxiv.org/abs/2407.01392
+Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau, Yilun Du, Benjamin Burchfiel, Russ Tedrake, and Shuran Song. 2023. Diffusion policy: Visuomotor policy
+learning via action diffusion. The International Journal of Robotics Research (2023),
+02783649241273668.
+Setareh Cohan, Guy Tevet, Daniele Reda, Xue Bin Peng, and Michiel van de Panne.
+2024. Flexible motion in-betweening with diffusion models. In ACM SIGGRAPH
+2024 Conference Papers. 1–9.
+Prafulla Dhariwal and Alex Nichol. 2024. Diffusion models beat GANs on image
+synthesis. In Proceedings of the 35th International Conference on Neural Information
+Processing Systems (NIPS ’21). Curran Associates Inc., Red Hook, NY, USA, Article
+672, 15 pages.
+Gaoge Han, Mingjiang Liang, Jinglei Tang, Yongkang Cheng, Wei Liu, and Shaoli Huang.
+2024. ReinDiffuse: Crafting Physically Plausible Motions with Reinforced Diffusion
+Model. arXiv:2410.07296 [cs.CV] https://arxiv.org/abs/2410.07296
+Jonathan Ho, Ajay Jain, and Pieter Abbeel. 2020. Denoising diffusion probabilistic
+models. Advances in neural information processing systems 33 (2020), 6840–6851.
+Jonathan Ho and Tim Salimans. 2021. Classifier-Free Diffusion Guidance. https:
+//openreview.net/forum?id=qw8AKxfYbI
+William Huang, Yifeng Jiang, Tom Van Wouwe, and Karen Liu. 2024b. Constrained
+Diffusion with Trust Sampling. In The Thirty-eighth Annual Conference on Neural
+Information Processing Systems.
+Xiaoyu Huang, Yufeng Chi, Ruofeng Wang, Zhongyu Li, Xue Bin Peng, Sophia Shao,
+Borivoje Nikolic, and Koushil Sreenath. 2024a. DiffuseLoco: Real-Time Legged
+Locomotion Control with Diffusion from Offline Datasets. In 8th Annual Conference
+ACM Trans. Graph., Vol. 44, No. 4, Article . Publication date: August 2025.
+Diffuse-CLoC: Guided Diffusion for Physics-based Character Look-ahead Control • 11
+on Robot Learning. https://openreview.net/forum?id=nVJm2RdPDu
+Sigmund H. Høeg, Yilun Du, and Olav Egeland. 2024. Streaming Diffusion Policy: Fast
+Policy Synthesis with Variable Noise Diffusion Models. arXiv:2406.04806 [cs.RO]
+https://arxiv.org/abs/2406.04806
+Michael Janner, Yilun Du, Joshua Tenenbaum, and Sergey Levine. 2022. Planning
+with Diffusion for Flexible Behavior Synthesis. 162 (17–23 Jul 2022), 9902–9915.
+https://proceedings.mlr.press/v162/janner22a.html
+Korrawe Karunratanakul, Konpat Preechakul, Supasorn Suwajanakorn, and Siyu Tang.
+2023. Guided Motion Diffusion for Controllable Human Motion Synthesis . In
+2023 IEEE/CVF International Conference on Computer Vision (ICCV). IEEE Computer
+Society, Los Alamitos, CA, USA, 2151–2162. https://doi.org/10.1109/ICCV51070.
+2023.00205
+Tianyu Li, Calvin Qiao, Guanqiao Ren, KangKang Yin, and Sehoon Ha. 2024b. AAMDM:
+Accelerated Auto-regressive Motion Diffusion Model. , 1813–1823 pages.
+Zhuo Li, Mingshuang Luo, Ruibing Hou, Xin Zhao, Hao Liu, Hong Chang, Zimo Liu,
+and Chen Li. 2024a. Morph: A Motion-free Physics Optimization Framework for
+Human Motion Generation. arXiv preprint arXiv:2411.14951 (2024).
+Zhengyi Luo, Jinkun Cao, Josh Merel, Alexander Winkler, Jing Huang, Kris M Kitani, and
+Weipeng Xu. 2024. Universal Humanoid Motion Representations for Physics-Based
+Control. In The Twelfth International Conference on Learning Representations.
+Zhengyi Luo, Jinkun Cao, Alexander Winkler, Kris Kitani, and Weipeng Xu. 2023.
+Perpetual Humanoid Control for Real-time Simulated Avatars. In 2023 IEEE/CVF
+International Conference on Computer Vision (ICCV). 10861–10870. https://doi.org/
+10.1109/ICCV51070.2023.01000
+Naureen Mahmood, Nima Ghorbani, Nikolaus F. Troje, Gerard Pons-Moll, and Michael J.
+Black. 2019. AMASS: Archive of Motion Capture as Surface Shapes. In International
+Conference on Computer Vision. 5442–5451.
+GVS Mothish, Manan Tayal, and Shishir Kolathaya. 2024. BiRoDiff: Diffusion policies
+for bipedal robot locomotion on unseen terrains. arXiv:2407.05424 [cs.RO] https:
+//arxiv.org/abs/2407.05424
+Xue Bin Peng, Pieter Abbeel, Sergey Levine, and Michiel van de Panne. 2018. DeepMimic:
+Example-guided Deep Reinforcement Learning of Physics-based Character Skills.
+ACM Trans. Graph. 37, 4, Article 143 (July 2018), 14 pages. https://doi.org/10.1145/
+3197517.3201311
+Xue Bin Peng, Yunrong Guo, Lina Halper, Sergey Levine, and Sanja Fidler. 2022. Ase:
+Large-scale reusable adversarial skill embeddings for physically simulated characters.
+ACM Transactions On Graphics (TOG) 41, 4 (2022), 1–17.
+Xue Bin Peng, Ze Ma, Pieter Abbeel, Sergey Levine, and Angjoo Kanazawa. 2021. AMP:
+adversarial motion priors for stylized physics-based character control. ACM Trans.
+Graph. 40, 4, Article 144 (July 2021), 20 pages. https://doi.org/10.1145/3450626.
+3459670
+Alec Radford. 2018. Improving language understanding by generative pre-training.
+(2018).
+Ralf Römer, Alexander von Rohr, and Angela P. Schoellig. 2024. Diffusion Predictive
+Control with Constraints. arXiv:2412.09342 [cs.RO] https://arxiv.org/abs/2412.09342
+Agon Serifi, Ruben Grandia, Espen Knoop, Markus Gross, and Moritz Bächer. 2024a.
+Robot Motion Diffusion Model: Motion Generation for Robotic Characters. In SIGGRAPH Asia 2024 Conference Papers (SA ’24). Association for Computing Machinery,
+New York, NY, USA, Article 50, 9 pages. https://doi.org/10.1145/3680528.3687626
+Agon Serifi, Ruben Grandia, Espen Knoop, Markus Gross, and Moritz Bächer. 2024b.
+VMP: Versatile Motion Priors for Robustly Tracking Motion on Physical Characters.
+Computer Graphics Forum 43, 8 (2024), e15175. https://doi.org/10.1111/cgf.15175
+Yi Shi, Jingbo Wang, Xuekun Jiang, Bingkun Lin, Bo Dai, and Xue Bin Peng. 2024.
+Interactive Character Control with Auto-Regressive Motion Diffusion Models. ACM
+Trans. Graph. 43, 4, Article 143 (July 2024), 14 pages. https://doi.org/10.1145/3658140
+Yang Song, Jascha Sohl-Dickstein, Diederik P Kingma, Abhishek Kumar, Stefano Ermon, and Ben Poole. 2021. Score-Based Generative Modeling through Stochastic
+Differential Equations. In International Conference on Learning Representations.
+Guy Tevet, Sigal Raab, Setareh Cohan, Daniele Reda, Zhengyi Luo, Xue Bin Peng,
+Amit H. Bermano, and Michiel van de Panne. 2024. CLoSD: Closing the Loop between
+Simulation and Diffusion for multi-task character control. arXiv:2410.03441 [cs.CV]
+https://arxiv.org/abs/2410.03441
+Guy Tevet, Sigal Raab, Brian Gordon, Yoni Shafir, Daniel Cohen-or, and Amit Haim
+Bermano. 2023. Human Motion Diffusion Model. In The Eleventh International
+Conference on Learning Representations.
+Takara Everest Truong, Michael Piseno, Zhaoming Xie, and C. Karen Liu. 2024. PDP:
+Physics-Based Character Animation via Diffusion Policy. In SIGGRAPH Asia 2024
+Conference Papers (SA ’24). ACM, 1–10. https://doi.org/10.1145/3680528.3687683
+Jonathan Tseng, Rodrigo Castellon, and Karen Liu. 2023. EDGE: Editable Dance Generation From Music. In Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition (CVPR). 448–458.
+Zhendong Wang, Zhaoshuo Li, Ajay Mandlekar, Zhenjia Xu, Jiaojiao Fan, Yashraj
+Narang, Linxi Fan, Yuke Zhu, Yogesh Balaji, Mingyuan Zhou, Ming-Yu Liu, and
+Yu Zeng. 2024. One-Step Diffusion Policy: Fast Visuomotor Policies via Diffusion
+Distillation. arXiv:2410.21257 [cs.RO] https://arxiv.org/abs/2410.21257
+Max Welling and Yee W Teh. 2011. Bayesian learning via stochastic gradient Langevin
+dynamics. In Proceedings of the 28th international conference on machine learning
+(ICML-11). 681–688.
+Jungdam Won, Deepak Gopinath, and Jessica Hodgins. 2022. Physics-based character
+controllers using conditional VAEs. ACM Trans. Graph. 41, 4, Article 96 (jul 2022),
+12 pages. https://doi.org/10.1145/3528223.3530067
+Zhaoming Xie, Jonathan Tseng, Sebastian Starke, Michiel van de Panne, and C. Karen
+Liu. 2023. Hierarchical Planning and Control for Box Loco-Manipulation. , 18 pages.
+Heyuan Yao, Zhenhua Song, Baoquan Chen, and Libin Liu. 2022. ControlVAE: ModelBased Learning of Generative Controllers for Physics-Based Characters. ACM
+Transactions on Graphics 41, 6 (Nov. 2022), 1–16. https://doi.org/10.1145/3550454.
+3555434
+Heyuan Yao, Zhenhua Song, Yuyang Zhou, Tenglong Ao, Baoquan Chen, and Libin
+Liu. 2024. MoConVQ: Unified Physics-Based Motion Control via Scalable Discrete
+Representations. ACM Transactions on Graphics (TOG) 43, 4 (2024), 1–21.
+Yunbo Zhang, Alexander Clegg, Sehoon Ha, Greg Turk, and Yuting Ye. 2023. Learning
+to Transfer In-Hand Manipulations Using a Greedy Shape Curriculum. In Computer
+graphics forum, Vol. 42. Wiley Online Library, 25–36.
+Zihan Zhang, Richard Liu, Rana Hanocka, and Kfir Aberman. 2024. TEDi: TemporallyEntangled Diffusion for Long-Term Motion Synthesis. In ACM SIGGRAPH 2024
+Conference Papers (Denver, CO, USA) (SIGGRAPH ’24). Association for Computing
+Machinery, New York, NY, USA, Article 68, 11 pages. https://doi.org/10.1145/
+3641519.3657515
+Tony Z. Zhao, Vikash Kumar, Sergey Levine, and Chelsea Finn. 2023. Learning FineGrained Bimanual Manipulation with Low-Cost Hardware. https://doi.org/10.
+15607/RSS.2023.XIX.016
+Qingxu Zhu, He Zhang, Mengting Lan, and Lei Han. 2023. Neural Categorical Priors
+for Physics-Based Character Control. ACM Transactions on Graphics (TOG) 42, 6
+(2023), 1–16.
+ACM Trans. Graph., Vol. 44, No. 4, Article . Publication date: August 2025.
+12 • Xiaoyu Huang, Takara Truong, Yunbo Zhang, Fangzhou Yu, Jean Pierre Sleiman, Jessica Hodgins, Koushil Sreenath, and Farbod Farshidian
+A TASK WEIGHTS
+Here, we provide the weights for different costs listed in Sec. 4 in computing classifier guidance for each tasks.
+Table 3. Task Weights Table
+Task Category Task Task Space Ctrl Static Obs. Dyn. Obs. Way-point Other
+Task Space Control
+Root Path Following 0.2 (root path) – – – –
+Reaching 0.2 (selected body) – – – –
+Gamepad Control 0.1 (velocity) – – – –
+Walk-Perturb 0.1 (forward vel.) – – – –
+Static Obstacle Avoidance Jump – 1 – 0.06 –
+Forest – 1 – 0.175 –
+Dynamic Obstacle Avoidance Forest + Dynamic – 1 1 0.175 –
+Motion In-betweening Motion In-betweening – – – 0.08 Inpainting
+ACM Trans. Graph., Vol. 44, No. 4, Article . Publication date: August 2025.
