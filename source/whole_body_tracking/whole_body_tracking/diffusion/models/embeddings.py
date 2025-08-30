@@ -353,21 +353,31 @@ class FutureTrajectoryEmbedding(nn.Module):
         # Add position embeddings
         # For interleaved sequences, we need to handle positions carefully
         # States and actions are interleaved but have different lengths
+        # Ensure positions are within bounds of position_embed
         state_positions = torch.arange(
-            0, self.future_length_states,
+            0, min(self.future_length_states, self.position_embed.shape[0]),
             device=state_embeds.device
         )
         action_positions = torch.arange(
-            0, self.future_length_actions,
+            0, min(self.future_length_actions, self.position_embed.shape[0]),
             device=action_embeds.device
         )
         
         # Add position and type embeddings
+        # Only add position embeddings for the available positions
         state_embeds = state_embeds + self.state_type_embed
-        state_embeds = state_embeds + self.position_embed[state_positions].unsqueeze(0)
+        if state_positions.numel() > 0:
+            state_embeds[:, :len(state_positions)] = (
+                state_embeds[:, :len(state_positions)] + 
+                self.position_embed[state_positions].unsqueeze(0)
+            )
         
         action_embeds = action_embeds + self.action_type_embed
-        action_embeds = action_embeds + self.position_embed[action_positions].unsqueeze(0)
+        if action_positions.numel() > 0:
+            action_embeds[:, :len(action_positions)] = (
+                action_embeds[:, :len(action_positions)] + 
+                self.position_embed[action_positions].unsqueeze(0)
+            )
         
         # Apply normalization and dropout
         state_embeds = self.output_norm(state_embeds)

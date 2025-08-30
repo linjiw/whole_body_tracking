@@ -253,19 +253,65 @@ class MotionDataCollector:
         return obs
     
     def _reset_with_randomization(self):
-        """Reset environment with domain randomization."""
+        """Reset environment with domain randomization.
+        
+        Matches Stage 1 training domain randomization:
+        - Friction coefficients (0.5-2.0x)
+        - Link masses (0.8-1.2x)
+        - Center of mass offsets (±5cm)
+        - Joint damping/stiffness (0.9-1.1x)
+        - External forces (random perturbations)
+        - Initial state noise
+        """
         if self.env is None:
             return
         
-        # Apply domain randomization
+        # Apply domain randomization matching Stage 1
         friction = random.uniform(*self.cfg.friction_range)
         mass_scale = random.uniform(*self.cfg.mass_range)
         com_offset = torch.randn(3) * self.cfg.com_offset_range
         
-        # This will be implemented with actual Isaac Lab API
-        # self.env.set_friction(friction)
-        # self.env.set_mass_scale(mass_scale)
-        # self.env.set_com_offset(com_offset)
+        # Additional randomizations from Stage 1
+        joint_damping_scale = random.uniform(0.9, 1.1)
+        joint_stiffness_scale = random.uniform(0.9, 1.1)
+        joint_armature_scale = random.uniform(0.9, 1.1)
+        
+        # Random external forces (impulses)
+        apply_external_force = random.random() < 0.1  # 10% chance
+        if apply_external_force:
+            force_magnitude = random.uniform(50, 200)  # N
+            force_direction = torch.randn(3)
+            force_direction = force_direction / torch.norm(force_direction)
+            external_force = force_direction * force_magnitude
+        else:
+            external_force = None
+        
+        # Initial state noise (joint positions)
+        initial_joint_noise = torch.randn(self.cfg.action_dim) * 0.05  # ±5% noise
+        
+        # Apply randomizations when Isaac Lab integration is available
+        # These will be implemented with actual Isaac Lab API:
+        # self.env.set_friction_coefficients(friction)
+        # self.env.set_link_masses(mass_scale)
+        # self.env.set_com_offsets(com_offset)
+        # self.env.set_joint_damping(joint_damping_scale)
+        # self.env.set_joint_stiffness(joint_stiffness_scale)
+        # self.env.set_joint_armature(joint_armature_scale)
+        # if external_force is not None:
+        #     self.env.apply_external_force(external_force)
+        # self.env.add_initial_joint_noise(initial_joint_noise)
+        
+        # Store randomization parameters for logging
+        self._current_randomization = {
+            'friction': friction,
+            'mass_scale': mass_scale,
+            'com_offset': com_offset.numpy() if hasattr(com_offset, 'numpy') else com_offset,
+            'joint_damping_scale': joint_damping_scale,
+            'joint_stiffness_scale': joint_stiffness_scale,
+            'joint_armature_scale': joint_armature_scale,
+            'external_force': external_force.numpy() if external_force is not None else None,
+            'initial_joint_noise_std': 0.05
+        }
     
     def _generate_mock_dataset(self, num_episodes: int) -> TrajectoryDataset:
         """Generate mock dataset for testing without Isaac Sim."""

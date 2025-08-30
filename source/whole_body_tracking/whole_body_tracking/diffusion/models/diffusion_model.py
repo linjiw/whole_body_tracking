@@ -294,15 +294,15 @@ class StateActionDiffusionModel(nn.Module):
             t
         )
         
-        # Compute losses
-        state_loss = F.mse_loss(pred_state_noise, batch['future_states'])
+        # Compute losses (compare predicted noise to actual noise, not clean data)
+        state_loss = F.mse_loss(pred_state_noise, state_noise)
         
         # Action loss with horizon masking (only first 8 actions)
         action_mask = torch.zeros_like(pred_action_noise)
         action_mask[:, :8] = 1.0  # Only compute loss on first 8 actions
         masked_action_loss = F.mse_loss(
             pred_action_noise * action_mask,
-            batch['future_actions'] * action_mask
+            action_noise * action_mask
         )
         
         # Total loss
