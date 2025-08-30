@@ -127,7 +127,12 @@ class MotionCommand(CommandTerm):
 
     @property
     def anchor_pos_w(self) -> torch.Tensor:
-        return self.motion.body_pos_w[self.time_steps, self.motion_anchor_body_index] + self._env.scene.env_origins
+        # Safety check for visualization cleanup during shutdown
+        if hasattr(self._env, 'scene') and hasattr(self._env.scene, 'env_origins'):
+            return self.motion.body_pos_w[self.time_steps, self.motion_anchor_body_index] + self._env.scene.env_origins
+        else:
+            # Return without env_origins if environment is being cleaned up
+            return self.motion.body_pos_w[self.time_steps, self.motion_anchor_body_index]
 
     @property
     def anchor_quat_w(self) -> torch.Tensor:
